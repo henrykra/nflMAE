@@ -1,72 +1,52 @@
 """entrypoint"""
 import logging
 from pathlib import Path
+from datetime import datetime
 import sys
 import json
 logger = logging.getLogger(__name__)
 
-import bdb2025
+
 import datasets
 import modeling
 import train
 
 def parse_config(): 
 
-    with open('./config.json') as f:
+    with open('./train_config.json') as f:
         config = json.load(f)
     
     return config
 
 
-def data_pipeline(config):
-    # load
-    if config["minimal"]:
-        tracking = bdb2025.load_csv_data([Path("minimal_tracking.csv")])[0]
-    else:
-        tracking = bdb2025.load_tracking_data(folder=config["folder"])
-    players = bdb2025.load_player_data(folder=config["folder"])
-    plays = bdb2025.load_play_data(folder=config["folder"])
-    # clean
-    players = bdb2025.clean_player_data(players)
-    tracking = bdb2025.clean_tracking_data(tracking)
-    tracking = bdb2025.mirror_tracking_plays(tracking)
-    static = bdb2025.prepare_static_data(tracking, plays, players)
-    # prepare
-    dynamic = datasets.interpolate_movement(tracking, config["interp"])
-
-    return dynamic, static
-
-
 def main(config: dict):
-    dynamic_path = Path("./data/dynamic.npy")
-    static_path = Path("./data/static.parquet")
-
-    if dynamic_path.exists() and static_path.exists() and not config["force"]:
-        dynamic = datasets.read_dynamic(dynamic_path)
-        static = bdb2025.read_static(static_path)
-    else:
-        dynamic, static = data_pipeline(config)
-        bdb2025.write_static(static)
-        datasets.write_dynamic(dynamic)
-    input, target = datasets.prepare_data_arrays(static, dynamic) # yeah, idc
-    input, mask = datasets.mask_input(input, dynamic, config["mask"])
-    n = input.shape[0]
-    train_idx, val_idx, test_idx = datasets.train_val_test_split(n, config["train"], config["val"], config["test"])
-    train_dataset = datasets.NflDataset(input, target, mask, train_idx)
-    val_dataset = datasets.NflDataset(input, target, mask, val_idx)
+    # create experiment folder
+    now = datetime.now().strftime("%m-%d-%y--%H:%M")
+    experiment_folder = Path(config["target_folder"]) / ("experiment" + now)
+    Path.mkdir(experiment_folder)
+    train_dataset = datasets.load_dataset(Path(config["data_folder"]) / "train.pt")
+    val_dataset = datasets.load_dataset(Path(config["data_folder"]) / "val.pt")
+    test_dataset = datasets.load_dataset(Path(config["data_folder"]) / "test.pt")
+    data_config = json.load(open(Path(config["data_folder"]) / "data_config.json", "r"))
     # debug
     # model
     model = modeling.NflBERT(
-        input.shape[-1], # in 
-        target.shape[-1], # out
+        train_dataset.dynamic_t.shape[-1] + train_dataset.static_t.shape[-1], # in 
+        train_dataset.target_t.shape[-1], # out
         hidden_size=config["hidden_size"],
         num_layers=config["num_layers"], 
         num_heads=config["num_heads"], 
         ffn_size=config["ffn_size"],
     ).to(config["device"])
     # train
-    train.train(config, model, train_dataset, val_dataset)
-    modeling.save_model(model, Path("./models/model.pt"))
+    test_loss = train.train(config, model, train_dataset, val_dataset, test_dataset, experiment_folder)
+    modeling.save_model(model, experiment_folder / "model.pt")
+    # write
+    with open(experiment_folder / "out.txt", "a") as outfile:
+        json.dump(data_config, outfile)
+        outfile.write('\n')
+        json.dump(config, outfile)
+        outfile.write(f"\nTest Loss: {test_loss}")
     
     return
 

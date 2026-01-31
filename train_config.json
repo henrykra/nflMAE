@@ -1,0 +1,13 @@
+{
+  "data_folder": "./data",
+  "target_folder": "./experiments",
+  "batch_size": 256,
+  "hidden_size": 64,
+  "num_layers": 2,
+  "num_heads": 2,
+  "ffn_size": 256,
+  "epochs": 50,
+  "lr": 0.001,
+  "patience": 10,
+  "device": "mps"
+}

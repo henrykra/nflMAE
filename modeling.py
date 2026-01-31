@@ -21,7 +21,7 @@ class NflBERT(torch.nn.Module):
         dropout: float=.3,
     ):
         super(NflBERT, self).__init__()
-        self.norm_layer = torch.nn.BatchNorm1d(feature_dim).to("mps")
+        self.norm_layer = torch.nn.BatchNorm1d(feature_dim)
         
         self.embed = torch.nn.Sequential(
             torch.nn.Linear(feature_dim, hidden_size),
@@ -59,7 +59,7 @@ class NflBERT(torch.nn.Module):
 
         # Normalize features
         x = x.permute(0, 2, 1)
-        
+
         x = self.norm_layer(x).permute(0, 2, 1)  # [B,P,F] -> [B,P,F]
 
         # Embed features

@@ -5,6 +5,7 @@ from PIL import Image
 from tqdm import tqdm
 import plotly.graph_objects as go
 import io
+from pathlib import Path
 
 
 def check_early_stopping(loss: float, best_val_loss: float, no_improvement: int, patience: int) -> tuple[bool, float, int]:
@@ -18,8 +19,8 @@ def check_early_stopping(loss: float, best_val_loss: float, no_improvement: int,
             return True, best_val_loss, no_improvement
         
 
-def start_tensorboard() -> SummaryWriter:
-    writer = SummaryWriter('./runs')
+def start_tensorboard(folder: Path) -> SummaryWriter:
+    writer = SummaryWriter(folder)
     return writer
 
 
@@ -94,20 +95,21 @@ def create_loss_fn():
 
     return torch.nn.SmoothL1Loss()
 
-def create_dataloaders(train_set: torch.utils.data.DataLoader, val_set: torch.utils.data.DataLoader, hparams):
+def create_dataloaders(train_set: torch.utils.data.DataLoader, val_set: torch.utils.data.DataLoader, test_set: torch.utils.data.Dataset, hparams):
     bs = hparams["batch_size"]
     return (
         torch.utils.data.DataLoader(train_set, bs, True),
-        torch.utils.data.DataLoader(val_set, bs, False)
+        torch.utils.data.DataLoader(val_set, bs, False),
+        torch.utils.data.DataLoader(test_set, bs, False)
     )
 
 
-def train(hparams: dict, model: torch.nn.Module, train_set: torch.utils.data.Dataset, val_set: torch.utils.data.Dataset):
-    writer = start_tensorboard()
+def train(hparams: dict, model: torch.nn.Module, train_set: torch.utils.data.Dataset, val_set: torch.utils.data.Dataset, test_set: torch.utils.data.Dataset, experiment_folder: Path):
+    writer = start_tensorboard(experiment_folder)
     
     loss_fn = create_loss_fn()
     optim = create_optim(model, hparams)
-    train_loader, val_loader = create_dataloaders(train_set, val_set, hparams)
+    train_loader, val_loader, test_loader = create_dataloaders(train_set, val_set, test_set, hparams)
 
     for epoch in range(hparams["epochs"]):
 
@@ -122,7 +124,7 @@ def train(hparams: dict, model: torch.nn.Module, train_set: torch.utils.data.Dat
             optim.zero_grad()
             x = model(inp)
 
-            loss = loss_fn(mask*x, mask*tar)
+            loss = loss_fn(mask*x, tar)
             train_loss += loss
             c += 1
             loss.backward()
@@ -135,6 +137,7 @@ def train(hparams: dict, model: torch.nn.Module, train_set: torch.utils.data.Dat
         model.eval()
         with torch.no_grad():
             for (inp, tar, mask) in val_loader:
+                inp, tar, mask = inp.to(hparams["device"]), tar.to(hparams["device"]), mask.to(hparams["device"])
                 x = model(inp)
 
                 loss = loss_fn(x*mask, tar*mask)
@@ -164,4 +167,17 @@ def train(hparams: dict, model: torch.nn.Module, train_set: torch.utils.data.Dat
     writer.flush()
     writer.close()
 
-    # log test loss
+    # get test loss
+    test_loss = 0
+    c = 0
+    with torch.no_grad():
+        for (inp, tar, mask) in test_loader:
+            inp, tar, mask = inp.to(hparams["device"]), tar.to(hparams["device"]), mask.to(hparams["device"])
+            x = model(inp)
+
+            loss = loss_fn(x*mask, tar*mask)
+            test_loss += loss
+            c += 1
+
+    print(f"Test Loss: {test_loss:.3f}")
+    return test_loss

@@ -1,0 +1,12 @@
+refs/
+data/*
+models/*
+runs/*
+
+data_pipeline.ipynb
+scratch.ipynb
+*.pyc
+.DS_Store
+todolist.txt
+experiments/*
+minimal_tracking.csv

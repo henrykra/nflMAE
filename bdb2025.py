@@ -15,7 +15,6 @@ def load_csv_data(
 
 def load_tracking_data(
     weeks: Optional[int | list[int]]=None,
-    db: Optional[Path]=None,
     folder: Optional[Path]=None,
 ) -> pd.DataFrame:
    
@@ -36,10 +35,6 @@ def load_tracking_data(
 
     logger.info(f"reading data from weeks: {weeks}")
 
-    # TODO: Load from database
-    if db and db.exists():
-        return
-
     # load data from a folderectory
     if folder and folder.exists():
         logger.info(f"reading tracking from {folder}")
@@ -54,12 +49,8 @@ def load_tracking_data(
 
 
 def load_player_data(
-    db: Optional[Path]=None,
     folder: Optional[Path]=None,
 ) -> pd.DataFrame:
-    
-    if db and db.exists():
-        return
 
     if folder and folder.exists():
         logger.info(f"reading player data from {folder}")
@@ -69,12 +60,9 @@ def load_player_data(
     
 
 def load_play_data(
-        db: Optional[Path]=None,
         folder: Optional[Path]=None,
 ) -> pd.DataFrame:
     
-    if db and db.exists():
-        return
 
     if folder and folder.exists():
         logger.info(f"reading play data from {folder}")
@@ -170,14 +158,18 @@ def mirror_tracking_plays(tracking_df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([tracking_df, mirrored_df])
 
 
-def prepare_static_data(tracking_df: pd.DataFrame, play_df: pd.DataFrame, player_df: pd.DataFrame ) -> pd.DataFrame:
-    logger.info("preparing static data")
+def prepare_static_data(tracking_df: pd.DataFrame, play_df: pd.DataFrame, player_df: pd.DataFrame ) -> np.ndarray:
+    print("preparing static data")
     # join 
 
-    joined_df = (
+    first_frames = (
         tracking_df
         .groupby(['gameId', 'playId', 'nflId', 'mirrored'], as_index=False)
         .first()
+    )
+
+    joined_df = (
+        first_frames
         .merge(
             play_df,
             how='left',
@@ -194,11 +186,25 @@ def prepare_static_data(tracking_df: pd.DataFrame, play_df: pd.DataFrame, player
     # filter
     joined_df = joined_df[        
         ['gameId', 'playId', 'nflId', 'mirrored', 'height_z', 'weight_z', 'position', 'offense']
-    ].copy()
+    ]
 
-    joined_df = pd.get_dummies(joined_df)
+    static_df = pd.get_dummies(joined_df)
 
-    return joined_df
+    play_index = static_df.set_index(['gameId', 'playId', 'mirrored'])
+    
+    num_plays = len(play_index.index.unique())
+    routes_per_play = static_df.groupby(['gameId', 'playId', 'mirrored'])['nflId'].nunique(dropna=True).iloc[0]
+
+    assert (static_df.groupby(['gameId', 'playId', 'mirrored'])['nflId'].nunique(dropna=False) == routes_per_play).all(), \
+    "Different values across player dimension"
+    
+    num_columns = len(play_index.columns) - 1 # subtract the nflId column
+    player_info = np.zeros( (num_plays, routes_per_play, num_columns), dtype=np.float32) 
+
+    for i, (name, group) in enumerate(play_index.groupby(['gameId', 'playId', 'mirrored'])):
+        player_info[i, ...] = group.drop(columns=['nflId'])
+
+    return player_info.reshape(num_plays, routes_per_play, num_columns)
 
 def get_num_static_cols(static_df: pd.DataFrame) -> int:
 
