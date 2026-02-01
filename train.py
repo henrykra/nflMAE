@@ -99,7 +99,7 @@ def create_dataloaders(train_set: torch.utils.data.DataLoader, val_set: torch.ut
     bs = hparams["batch_size"]
     return (
         torch.utils.data.DataLoader(train_set, bs, True),
-        torch.utils.data.DataLoader(val_set, bs, False),
+        torch.utils.data.DataLoader(val_set, bs, True),
         torch.utils.data.DataLoader(test_set, bs, False)
     )
 
@@ -124,7 +124,7 @@ def train(hparams: dict, model: torch.nn.Module, train_set: torch.utils.data.Dat
             optim.zero_grad()
             x = model(inp)
 
-            loss = loss_fn(mask*x, tar)
+            loss = loss_fn(x*mask, tar*mask)
             train_loss += loss
             c += 1
             loss.backward()
@@ -163,6 +163,7 @@ def train(hparams: dict, model: torch.nn.Module, train_set: torch.utils.data.Dat
                 writer.add_image(f"sample/{epoch}", np.array(img).transpose([2, 0, 1]))
 
                 print(f"Epoch: {epoch}\tVal Loss: {val_loss/c:.3f}")
+                writer.flush()
             
     writer.flush()
     writer.close()
@@ -179,5 +180,5 @@ def train(hparams: dict, model: torch.nn.Module, train_set: torch.utils.data.Dat
             test_loss += loss
             c += 1
 
-    print(f"Test Loss: {test_loss:.3f}")
-    return test_loss
+    print(f"Test Loss: {test_loss / c:.3f}")
+    return test_loss / c

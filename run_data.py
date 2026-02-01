@@ -32,7 +32,7 @@ def main(config: dict):
     mask = datasets.generate_mask(static, config["mask"])
     n = static.shape[0]
     train_idx, val_idx, test_idx = datasets.train_val_test_split(n, config["train"], config["val"], config["test"])
-    train_dataset = datasets.NflDataset(dynamic, static, mask, train_idx)
+    train_dataset = datasets.NflDataset(dynamic, static, mask, train_idx, premask=config["premask"], mask_pct=config["mask"])
     val_dataset = datasets.NflDataset(dynamic, static, mask, val_idx)
     test_dataset = datasets.NflDataset(dynamic, static, mask, test_idx)
     # write train in, train out, train mask
@@ -40,7 +40,7 @@ def main(config: dict):
     datasets.write_dataset(val_dataset, Path(config["targetfolder"]) / "val.pt")
     datasets.write_dataset(test_dataset, Path(config["targetfolder"]) / "test.pt")
     write_config(config)
-
+    print(f"Generated {len(train_idx)} training samples")
     return
 
 if __name__ == "__main__":

@@ -1,11 +1,11 @@
 {
-    "premask": true,
-    "minimal": true,
-    "interp": 40,
-    "folder": "/Users/henrykraessig/code/bdb2025/data/",
-    "targetfolder": "./data",
-    "mask": 0.15,
-    "train": 0.7,
-    "val": 0.15,
+    "premask": false, 
+    "minimal": false, 
+    "interp": 40, 
+    "folder": "/Users/henrykraessig/code/bdb2025/data/", 
+    "targetfolder": "./data", 
+    "mask": 0.15, 
+    "train": 0.7, 
+    "val": 0.15, 
     "test": 0.15
 }

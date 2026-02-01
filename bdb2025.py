@@ -33,7 +33,7 @@ def load_tracking_data(
         assert isinstance(week, int) and week >= MIN_WEEK and week <= MAX_WEEK, \
         f"provide integer weeks between {MIN_WEEK} and {MAX_WEEK}"
 
-    logger.info(f"reading data from weeks: {weeks}")
+    print(f"reading data from weeks: {weeks}")
 
     # load data from a folderectory
     if folder and folder.exists():
@@ -41,7 +41,6 @@ def load_tracking_data(
         paths = [Path(folder, f'tracking_week_{n}.csv') for n in weeks]
 
         dfs = load_csv_data(paths)
-        logger.info("finshed reading tracking")
         return pd.concat(dfs)
     
     raise FileNotFoundError
@@ -72,7 +71,7 @@ def load_play_data(
 
 
 def clean_player_data(player_df: pd.DataFrame) -> pd.DataFrame:
-    logger.info("cleaning player data")
+    print("cleaning player data")
     
     # clean height
     feet = pd.to_numeric(player_df['height'].str.split('-', expand=True)[0])
@@ -87,7 +86,7 @@ def clean_player_data(player_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def clean_tracking_data(tracking_df: pd.DataFrame) -> pd.DataFrame:
-    logger.info("cleaning tracking data")
+    print("cleaning tracking data")
 
     # angles to radians
     tracking_df['o'] = ((-1 * tracking_df['o'] + 90) % 360) * np.pi / 180
@@ -144,7 +143,7 @@ def clean_tracking_data(tracking_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def mirror_tracking_plays(tracking_df: pd.DataFrame) -> pd.DataFrame:
-    logger.info("mirroring tracking data")
+    print("mirroring tracking data")
     mirrored_df = tracking_df.copy()
 
     mirrored_df['y'] = mirrored_df['y'] * -1
@@ -212,7 +211,7 @@ def get_num_static_cols(static_df: pd.DataFrame) -> int:
 
 
 def write_static(static: pd.DataFrame) -> None: 
-    logger.info("writing dataframes")
+    print("writing dataframes")
     static.to_parquet("./data/static.parquet")
     return
 

@@ -19,7 +19,7 @@ def interpolate_movement(tracking_df: pd.DataFrame, interp: int) -> np.ndarray:
     num_plays = len(ids)
     routes_per_play = tracking_df.groupby(['gameId', 'playId'])['nflId'].nunique(dropna=True).max()
 
-    logger.info(f"interpolating data {len(interpolated_columns)} columns of data")
+    print(f"interpolating data {len(interpolated_columns)} columns of data")
     # array for interpolated movement
     movement_arr = np.zeros( (num_plays, routes_per_play, num_obs, len(interpolated_columns)), dtype=np.float32)
 
@@ -96,7 +96,7 @@ def generate_mask(static: np.ndarray, mask_pct: float) -> np.ndarray:
 
 
 def train_val_test_split(n: int, train_pct: float, val_pct: float, test_pct: float):
-
+    print(f"making splits at {train_pct}, {val_pct}, {test_pct}")
     idx = np.arange(n)
 
     cats = np.random.choice(a=[0, 1, 2], size=n, replace=True, p=[train_pct, val_pct, test_pct])
@@ -112,11 +112,12 @@ def train_val_test_split(n: int, train_pct: float, val_pct: float, test_pct: flo
 
 class NflDataset(Dataset):
     
-    def __init__(self, dynamic_arr: np.ndarray, static_arr: np.ndarray, mask_arr: np.ndarray, idx: np.ndarray, device: torch.DeviceObjType=torch.device("cpu")):
+    def __init__(self, dynamic_arr: np.ndarray, static_arr: np.ndarray, mask_arr: np.ndarray, idx: np.ndarray, premask: bool=True, mask_pct: float=.15):
 
         # make sure there's the right amount of input observatinos and target observations
         assert static_arr.shape[0] == dynamic_arr.shape[0], "# Observations mismatch between input and target"
-
+        self.premask = premask
+        self.mask_pct = mask_pct
         n_plays = len(idx)
         routes_per_play =  static_arr.shape[1]
 
@@ -128,11 +129,18 @@ class NflDataset(Dataset):
     
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         
-        # mask dynamic
-        inp = torch.cat([self.static_t[idx], (self.dynamic_t[idx] * self.mask_t[idx])], dim=-1)
-        tar = self.target_t[idx] * (~self.mask_t[idx])
+        tar = self.target_t[idx]
+
+        # mask dynamic features
+        if self.premask:
+            inp = torch.cat([self.static_t[idx], (self.dynamic_t[idx] * self.mask_t[idx])], dim=-1)
+            mask = ~self.mask_t[idx]
+        else:
+            # random mask
+            mask = (torch.rand(size=(self.dynamic_t.shape[1], 1)) < self.mask_pct).bool()
+            inp = torch.cat([self.static_t[idx], (self.dynamic_t[idx] * ~mask)], dim=-1)
         
-        return inp, tar, self.mask_t[idx]
+        return inp, tar, mask
 
 
     def __len__(self) -> int:

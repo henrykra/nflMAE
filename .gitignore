@@ -2,6 +2,7 @@ refs/
 data/*
 models/*
 runs/*
+__pycache__/
 
 data_pipeline.ipynb
 scratch.ipynb
