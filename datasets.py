@@ -139,9 +139,9 @@ class NflDataset(Dataset):
             # random mask
             mask = (torch.rand(size=(self.dynamic_t.shape[1], 1)) < self.mask_pct).bool()
             inp = torch.cat([self.static_t[idx], (self.dynamic_t[idx] * ~mask)], dim=-1)
-        
-        return inp, tar, mask
 
+        return inp, tar, mask
+        
 
     def __len__(self) -> int:
 

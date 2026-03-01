@@ -1,4 +1,4 @@
-"""entrypoint"""
+"""entrypoint for training"""
 import logging
 from pathlib import Path
 from datetime import datetime

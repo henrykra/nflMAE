@@ -3,7 +3,7 @@
   "target_folder": "./experiments", 
   "batch_size": 256, 
   "hidden_size": 512, 
-  "num_layers": 2, 
+  "num_layers": 4, 
   "num_heads": 8, 
   "ffn_size": 2048, 
   "epochs": 70, 

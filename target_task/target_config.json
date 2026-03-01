@@ -1,0 +1,21 @@
+{
+    "minimal": false, 
+    "interp": 40, 
+    "folder": "/Users/henrykraessig/code/bdb2025/data/", 
+    "mask": 0.15, 
+    "train": 0.7, 
+    "val": 0.15, 
+    "test": 0.15,
+    "model_path": "/Users/henrykraessig/code/route2vec/experiments/experiment02-01-26--18:54/model.pt",
+    "out_path": "/Users/henrykraessig/code/route2vec/target_task/experiments",
+    "hidden_size": 512,
+    "num_heads": 8,
+    "ffn_size": 2048,
+    "num_layers": 2,
+    "batch_size": 256,
+    "lr": 1e-3,
+    "epochs": 50,
+    "patience": 5,
+    "device": "mps"
+}
+

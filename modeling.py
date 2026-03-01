@@ -21,6 +21,17 @@ class NflBERT(torch.nn.Module):
         dropout: float=.3,
     ):
         super(NflBERT, self).__init__()
+
+
+        self.feature_dim = feature_dim
+        self.output_dim = output_dim
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.num_heads = num_heads
+        self.ffn_size = ffn_size
+        self.dropout = dropout
+
+
         self.norm_layer = torch.nn.BatchNorm1d(feature_dim)
         
         self.embed = torch.nn.Sequential(
@@ -75,5 +86,5 @@ class NflBERT(torch.nn.Module):
 
 
 def save_model(model: torch.nn.Module, file):
-    torch.save(model, file)
+    torch.save(model.state_dict(), file)
 
