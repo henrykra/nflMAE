@@ -63,7 +63,8 @@ def filter_tracking_data(tracking_df: pd.DataFrame, play_df: pd.DataFrame) -> pd
         return filtered_tracking.drop(columns=['pass_forward_frame', 'after_pass'])
     
 
-    filtered_tracking = tracking_df.set_index(['gameId', 'playId']).loc[good_plays].reset_index()
+    plays = tracking_df.set_index(['gameId', 'playId']).index
+    filtered_tracking = tracking_df.loc[plays.isin(good_plays)]
     return filtered_tracking
         
     
@@ -86,46 +87,6 @@ def subsample_tracking_data(tracking_df: pd.DataFrame):
     tracking_df = tmp.loc[~tmp['after']].drop(columns=['max_frame', 'after']).copy()
 
     return tracking_df
-
-
-def prepare_target(tracking_df: pd.DataFrame, play_df: pd.DataFrame):
-    print("preparing target data")
-    # join 
-
-    first_frames = (
-        tracking_df
-        .groupby(['gameId', 'playId', 'nflId', 'mirrored'], as_index=False)
-        .first()
-    )
-
-    joined_df = (
-        first_frames
-        .merge(
-            play_df[['gameId', 'playId', 'pff_manZone']],
-            how='left',
-            on=('gameId', 'playId')
-        )
-    )
-
-    # filter
-    input_df = joined_df[        
-        ['gameId', 'playId', 'mirrored', 'pff_manZone'] 
-    ]
-
-
-    static_df = pd.get_dummies(input_df)
-
-    play_index = static_df.set_index(['gameId', 'playId', 'mirrored']).sort_index()
-
-    num_plays = len(play_index.index.unique())
-    
-    num_columns = len(play_index.columns)
-    target = np.zeros( (num_plays, num_columns), dtype=np.float32) 
-
-    for i, (name, group) in enumerate(play_index.groupby(['gameId', 'playId', 'mirrored'])):
-        target[i, ...] = group
-    
-    return target
 
 
 class TargetsDataset(Dataset):
@@ -166,6 +127,7 @@ class ManZoneModel(modeling.NflBERT):
         ffn_size: int=2048,
         ffn_act: str="gelu",
         dropout: float=.3,
+        new_output_dim: int=1,
     ):
         
         super().__init__(feature_dim, output_dim, hidden_size,num_layers,num_heads, ffn_size, ffn_act, dropout)
@@ -177,7 +139,7 @@ class ManZoneModel(modeling.NflBERT):
             torch.nn.GELU(),
             torch.nn.Dropout(dropout),
             torch.nn.LayerNorm(hidden_size // 4),
-            torch.nn.Linear(hidden_size // 4, 1),
+            torch.nn.Linear(hidden_size // 4, new_output_dim),
         )   
         
 
@@ -206,8 +168,16 @@ class ManZoneModel(modeling.NflBERT):
 
 
 
-def load_and_prepare_model(hparams: dict, model_path: Path) -> modeling.NflBERT:
-    model = ManZoneModel()
+def load_and_prepare_model(hparams: dict, model_path: Path, train_dataset) -> modeling.NflBERT:
+    model = ManZoneModel(
+        train_dataset.dynamic_t.shape[-1] + train_dataset.static_t.shape[-1], # in 
+        80,
+        hparams["hidden_size"],
+        hparams["num_layers"],
+        hparams["num_heads"],
+        hparams["ffn_size"],
+        new_output_dim=train_dataset.target_t.shape[-1]
+    )
     model.load_state_dict(torch.load(model_path), strict=False)
 
     
@@ -222,7 +192,7 @@ def load_and_prepare_model(hparams: dict, model_path: Path) -> modeling.NflBERT:
     for param in model.player_pooling_layer.parameters():
         param.requires_grad = True
 
-    return model
+    return model.to(hparams["device"])
 
 
 def train(hparams: dict, model: torch.nn.Module, train_set: torch.utils.data.Dataset, val_set: torch.utils.data.Dataset, test_set: torch.utils.data.Dataset, experiment_folder: Path):
@@ -259,13 +229,17 @@ def train(hparams: dict, model: torch.nn.Module, train_set: torch.utils.data.Dat
         writer.add_scalar('Loss/train', train_loss / c, epoch)
 
         c = 0
+        num_right = 0
+        total_num = 0
         model.eval()
         with torch.no_grad():
             for (inp, tar) in val_loader:
                 inp, tar = inp.to(hparams["device"]), tar.to(hparams["device"])
                 x = model(inp)
                 #print(f'Pred: {np.argmax(x.cpu()[0], axis=0)}')
-                #print(f'Target: {np.argmax(tar.cpu()[0], axis=0)}')
+            #print(f'Target: {np.argmax(tar.cpu()[0], axis=0)}')
+                num_right += sum(np.argmax(x.cpu(), axis=-1) == np.argmax(tar.cpu(), axis=-1))
+                total_num += x.cpu().shape[0]
 
                 loss = loss_fn(x, tar)
                 val_loss += loss
@@ -282,6 +256,8 @@ def train(hparams: dict, model: torch.nn.Module, train_set: torch.utils.data.Dat
             if epoch % 10 == 0:
                 # log a sample play
                 print(f"Epoch: {epoch}\tVal Loss: {val_loss/c:.3f}")
+                print(f"Accuracy: {num_right / total_num:.3f}")
+
                 writer.flush()
             
     writer.flush()
@@ -290,57 +266,65 @@ def train(hparams: dict, model: torch.nn.Module, train_set: torch.utils.data.Dat
     # get test loss
     test_loss = 0
     c = 0
+    num_right = 0
+    total_num = 0
     with torch.no_grad():
         for (inp, tar) in test_loader:
             inp, tar = inp.to(hparams["device"]), tar.to(hparams["device"])
             x = model(inp)
+
+
+            num_right += sum(np.argmax(x.cpu(), axis=-1) == np.argmax(tar.cpu(), axis=-1))
+            total_num += x.cpu().shape[0]
+            
 
             loss = loss_fn(x, tar)
             test_loss += loss
             c += 1
 
     print(f"Test Loss: {test_loss / c:.3f}")
+    print(f"Accuracy: {num_right / total_num:.3f}")
     return test_loss / c
 
 
 
 def main(config: dict):
+    if (Path(config["targetfolder"]) / "train.pt").exists():
+        train_dataset = datasets.load_dataset(Path(config["targetfolder"]) / "train.pt")
+        val_dataset = datasets.load_dataset(Path(config["targetfolder"]) / "val.pt")
+        test_dataset = datasets.load_dataset(Path(config["targetfolder"]) / "test.pt")
 
-    if config["minimal"]:
-        tracking = bdb2025.load_csv_data([Path("minimal_tracking.csv")])[0]
     else:
-        tracking = bdb2025.load_tracking_data(folder=Path(config["folder"]))
-    players = bdb2025.load_player_data(folder=Path(config["folder"]))
-    plays = bdb2025.load_play_data(folder=Path(config["folder"]))
-    player_play = bdb2025.load_player_play_data(folder=Path(config["folder"]))
-    # clean
-    players = bdb2025.clean_player_data(players)
-    tracking = filter_tracking_data(tracking, plays) #### 
-    tracking = bdb2025.clean_tracking_data(tracking)
-    # tracking = subsample_tracking_data(tracking) ####
-    tracking = bdb2025.mirror_tracking_plays(tracking)
+        if config["minimal"]:
+            tracking = bdb2025.load_csv_data([Path("minimal_tracking.csv")])[0]
+        else:
+            tracking = bdb2025.load_tracking_data(folder=Path(config["folder"]))
+        players = bdb2025.load_player_data(folder=Path(config["folder"]))
+        plays = bdb2025.load_play_data(folder=Path(config["folder"]))
+        player_play = bdb2025.load_player_play_data(folder=Path(config["folder"]))
+        # clean
+        players = bdb2025.clean_player_data(players)
+        tracking = filter_tracking_data(tracking, plays) #### 
+        tracking = bdb2025.clean_tracking_data(tracking)
+        # tracking = subsample_tracking_data(tracking) ####
+        tracking = bdb2025.mirror_tracking_plays(tracking)
 
+        static, dynamic, target = bdb2025.create_data_arrays(tracking, plays, players, config["interp"], target_cols=["pff_manZone"])
+        
+        n = static.shape[0]
+        train_idx, val_idx, test_idx = datasets.train_val_test_split(n, config["train"], config["val"], config["test"])
+        train_dataset = TargetsDataset(dynamic, static, target, train_idx)
+        val_dataset = TargetsDataset(dynamic, static, target, val_idx)
+        test_dataset = TargetsDataset(dynamic, static, target, test_idx)
+        # write train in, train out, train mask
 
-    return
-    static = bdb2025.prepare_static_data(tracking, plays, players)
-    target = prepare_target(tracking, plays)
-    dynamic = datasets.interpolate_movement(tracking, config["interp"])
-    # prepare
-
-    n = static.shape[0]
-    train_idx, val_idx, test_idx = datasets.train_val_test_split(n, config["train"], config["val"], config["test"])
-    train_dataset = TargetsDataset(dynamic, static, target, train_idx)
-    val_dataset = TargetsDataset(dynamic, static, target, val_idx)
-    test_dataset = TargetsDataset(dynamic, static, target, test_idx)
-    # write train in, train out, train mask
-    if False:
         datasets.write_dataset(train_dataset, Path(config["targetfolder"]) / "train.pt")
         datasets.write_dataset(val_dataset, Path(config["targetfolder"]) / "val.pt")
         datasets.write_dataset(test_dataset, Path(config["targetfolder"]) / "test.pt")
-        write_config(config)
-    print(f"Generated {len(train_idx)} training samples")
+
+        print(f"Generated {len(train_idx)} training samples")
     
-    model = load_and_prepare_model(config["model_path"]).to(torch.device("mps"))
+    model = load_and_prepare_model(config, config["model_path"], train_dataset)
 
     now = datetime.now().strftime("%m-%d-%y--%H:%M")
     experiment_folder = Path(config["out_path"]) / ("experiment" + now)

@@ -4,6 +4,8 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import logging
+from scipy.interpolate import CubicSpline
+
 logger = logging.getLogger(__name__)
 
 def load_csv_data(
@@ -23,7 +25,7 @@ def load_tracking_data(
 
     if not weeks:
         # defualt to all data
-        weeks = range(MIN_WEEK, MAX_WEEK)
+        weeks = range(MIN_WEEK, MAX_WEEK + 1)
     
     if isinstance(weeks, int):
         weeks = [weeks]
@@ -200,16 +202,21 @@ def prepare_static_data(tracking_df: pd.DataFrame, play_df: pd.DataFrame, player
     input_df = joined_df[        
         ['gameId', 'playId', 'nflId', 'mirrored', 'height_z', 'weight_z', 'position', 'offense'] 
     ]
+    static_df = pd.get_dummies(input_df)
 
 
-    static_input_df = pd.get_dummies(input_df)
 
-    input_play_index = static_input_df.set_index(['gameId', 'playId', 'mirrored']).sort_index()
+
+
+
+
+
+    input_play_index = static_df.set_index(['gameId', 'playId', 'mirrored']).sort_index()
 
     num_plays = len(input_play_index.index.unique())
-    routes_per_play = static_input_df.groupby(['gameId', 'playId', 'mirrored'])['nflId'].nunique(dropna=True).iloc[0]
+    routes_per_play = static_df.groupby(['gameId', 'playId', 'mirrored'])['nflId'].nunique(dropna=True).iloc[0]
 
-    assert (static_input_df.groupby(['gameId', 'playId', 'mirrored'])['nflId'].nunique(dropna=False) == routes_per_play).all(), \
+    assert (static_df.groupby(['gameId', 'playId', 'mirrored'])['nflId'].nunique(dropna=False) == routes_per_play).all(), \
     "Different values across player dimension"
     
     num_input_columns = len(input_play_index.columns) - 1 # subtract the nflId column
@@ -236,3 +243,120 @@ def write_static(static: pd.DataFrame) -> None:
 
 def read_static(static_path: Path) -> pd.DataFrame:
     return pd.read_parquet(static_path)
+
+
+
+def compile_static_dataframe(tracking_df: pd.DataFrame, play_df: pd.DataFrame, player_df: pd.DataFrame) -> pd.DataFrame:
+        # join 
+
+        first_frames = ( # join the player info on the players who are in each play
+            tracking_df
+            .groupby(['gameId', 'playId', 'nflId', 'mirrored'], as_index=False)
+            .first()
+        )
+
+        joined_df = (
+            first_frames
+            .merge(
+                play_df,
+                how='left',
+                on=('gameId', 'playId')
+            )
+            .merge( # player info for positions
+                player_df, 
+                how='left',
+                on='nflId'
+            )
+        )
+        joined_df['offense'] = joined_df['club'] == joined_df['possessionTeam']
+
+        # filter
+        input_df = joined_df[        
+            ['gameId', 'playId', 'nflId', 'mirrored', 'height_z', 'weight_z', 'position', 'offense'] 
+        ]
+        static_df = pd.get_dummies(input_df)
+
+        return static_df
+
+def create_data_arrays(tracking_df: pd.DataFrame, play_df: pd.DataFrame, player_df: pd.DataFrame, interp: int, target_cols: list=[]):   
+    print("preparing data arrays") 
+    num_obs = interp
+    interpolated_columns = ['x', 'y', 'ox', 'oy', 'vx', 'vy', 'a']
+
+
+    static_df = compile_static_dataframe(tracking_df, play_df, player_df)
+
+    # check for mismatch
+    routes_per_play = static_df.groupby(['gameId', 'playId', 'mirrored'])['nflId'].nunique(dropna=True).iloc[0]
+    assert (static_df.groupby(['gameId', 'playId', 'mirrored'])['nflId'].nunique(dropna=False) == routes_per_play).all(), \
+    "Different values across player dimension"
+
+
+
+    static_df = static_df.set_index(['gameId', 'playId', 'mirrored']).sort_index()
+    ids = static_df.index.unique()
+    num_plays = len(ids)
+    tracking_df = tracking_df.set_index(['gameId', 'playId', 'mirrored']).sort_index()
+
+    num_static_cols = len(static_df.columns)
+    assert static_df.columns[0] == "nflId", static_df.columns[0]
+
+
+    movement_arr = np.zeros( (num_plays, routes_per_play, num_obs, len(interpolated_columns)), dtype=np.float32)
+    static_arr = np.zeros( (num_plays, routes_per_play, num_static_cols), dtype=np.float32)
+
+    if target_cols:
+        target_df = pd.get_dummies(play_df.set_index(['gameId', 'playId'])[target_cols])
+
+        num_target_cols = len(target_df.columns)
+        target_arr = np.zeros( (num_plays, num_target_cols ))
+    else:
+        target_arr = None
+
+
+    for i, (gameid, playid, mirrored) in enumerate(ids):
+        
+
+        # intepolate each player's movement
+        play: pd.DataFrame = tracking_df.loc[gameid, playid, mirrored]
+
+        # populate static array
+        static_arr[i] = static_df.loc[(gameid, playid, mirrored)].to_numpy()
+        
+
+        # populate movement array
+        for ii, nflid in enumerate(play['nflId'].dropna().unique()):
+
+            player: pd.DataFrame = play.loc[play['nflId'] == nflid]
+            min_frame = player['frameId'].min()
+            frame_range = player['frameId'].max() - min_frame
+            t = np.array((player['frameId'] - min_frame) / frame_range)
+
+            player_data = np.array(player[interpolated_columns])
+
+            # smooth the info about the player over time
+            spline = CubicSpline(t, player_data, axis=0, extrapolate=False)
+
+            # take n observations
+            observation_times = np.arange(num_obs) / num_obs
+
+            # populate an array with smoothed values
+            movement_arr[i, ii, ...] = spline(observation_times)
+
+            # ensure nflIds line up
+            assert static_arr[i, ii, 0] == nflid
+
+
+        # populate target array
+        if target_cols:
+            target_arr[i] = target_df.loc[(gameid, playid)].to_numpy()
+
+        
+
+
+    # delete nflId from static
+    static_arr = np.delete(static_arr, 0, axis=-1)
+
+    return static_arr, movement_arr, target_arr
+
+

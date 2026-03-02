@@ -25,8 +25,8 @@ def main(config: dict):
     players = bdb2025.clean_player_data(players)
     tracking = bdb2025.clean_tracking_data(tracking)
     tracking = bdb2025.mirror_tracking_plays(tracking)
-    static = bdb2025.prepare_static_data(tracking, plays, players)
-    dynamic = datasets.interpolate_movement(tracking, config["interp"])
+
+    static, dynamic, _ = bdb2025.create_data_arrays(tracking, plays, players, config["interp"])
     # prepare
     # generate mask
     mask = datasets.generate_mask(static, config["mask"])

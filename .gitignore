@@ -1,4 +1,5 @@
 refs/
+*/data/*
 data/*
 models/*
 runs/*
@@ -9,5 +10,6 @@ scratch.ipynb
 *.pyc
 .DS_Store
 todolist.txt
+*/experiments/*
 experiments/*
 minimal_tracking.csv
