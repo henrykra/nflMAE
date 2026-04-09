@@ -9,44 +9,44 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
-def interpolate_movement(tracking_df: pd.DataFrame, interp: int) -> np.ndarray:
+# def interpolate_movement(tracking_df: pd.DataFrame, interp: int) -> np.ndarray:
 
-    play_index = tracking_df.set_index(['gameId', 'playId', 'mirrored']).sort_index()
+#     play_index = tracking_df.set_index(['gameId', 'playId', 'mirrored']).sort_index()
 
-    num_obs = interp
-    interpolated_columns = ['x', 'y', 'ox', 'oy', 'vx', 'vy', 'a']
-    ids = play_index.index.unique()
-    num_plays = len(ids)
-    routes_per_play = tracking_df.groupby(['gameId', 'playId'])['nflId'].nunique(dropna=True).max()
+#     num_obs = interp
+#     interpolated_columns = ['x', 'y', 'ox', 'oy', 'vx', 'vy', 'a']
+#     ids = play_index.index.unique()
+#     num_plays = len(ids)
+#     routes_per_play = tracking_df.groupby(['gameId', 'playId'])['nflId'].nunique(dropna=True).max()
 
-    print(f"interpolating data {len(interpolated_columns)} columns of data")
-    # array for interpolated movement
-    movement_arr = np.zeros( (num_plays, routes_per_play, num_obs, len(interpolated_columns)), dtype=np.float32)
+#     print(f"interpolating data {len(interpolated_columns)} columns of data")
+#     # array for interpolated movement
+#     movement_arr = np.zeros( (num_plays, routes_per_play, num_obs, len(interpolated_columns)), dtype=np.float32)
 
-    for i, (gameid, playid, mirrored) in enumerate(ids): 
+#     for i, (gameid, playid, mirrored) in enumerate(ids): 
         
-        play: pd.DataFrame = play_index.loc[gameid, playid, mirrored]
+#         play: pd.DataFrame = play_index.loc[gameid, playid, mirrored]
         
-        for ii, nflid in enumerate(play['nflId'].dropna().unique()):
+#         for ii, nflid in enumerate(play['nflId'].dropna().unique()):
 
-            player: pd.DataFrame = play.loc[play['nflId'] == nflid]
-            min_frame = player['frameId'].min()
-            frame_range = player['frameId'].max() - min_frame
-            t = np.array((player['frameId'] - min_frame) / frame_range)
+#             player: pd.DataFrame = play.loc[play['nflId'] == nflid]
+#             min_frame = player['frameId'].min()
+#             frame_range = player['frameId'].max() - min_frame
+#             t = np.array((player['frameId'] - min_frame) / frame_range)
 
-            player_data = np.array(player[interpolated_columns])
+#             player_data = np.array(player[interpolated_columns])
 
-            # smooth the info about the player over time
-            spline = CubicSpline(t, player_data, axis=0, extrapolate=False)
+#             # smooth the info about the player over time
+#             spline = CubicSpline(t, player_data, axis=0, extrapolate=False)
 
-            # take n observations
-            observation_times = np.arange(num_obs) / num_obs
+#             # take n observations
+#             observation_times = np.arange(num_obs) / num_obs
 
-            # populate an array with smoothed values
-            movement_arr[i, ii, ...] = spline(observation_times)
+#             # populate an array with smoothed values
+#             movement_arr[i, ii, ...] = spline(observation_times)
 
 
-    return movement_arr
+#     return movement_arr
 
 
 # def prepare_data_arrays(static_df: pd.DataFrame, movement_arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

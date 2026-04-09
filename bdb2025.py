@@ -206,11 +206,6 @@ def prepare_static_data(tracking_df: pd.DataFrame, play_df: pd.DataFrame, player
 
 
 
-
-
-
-
-
     input_play_index = static_df.set_index(['gameId', 'playId', 'mirrored']).sort_index()
 
     num_plays = len(input_play_index.index.unique())
@@ -240,6 +235,7 @@ def write_static(static: pd.DataFrame) -> None:
     print("writing dataframes")
     static.to_parquet("./data/static.parquet")
     return
+
 
 def read_static(static_path: Path) -> pd.DataFrame:
     return pd.read_parquet(static_path)
@@ -277,6 +273,7 @@ def compile_static_dataframe(tracking_df: pd.DataFrame, play_df: pd.DataFrame, p
         static_df = pd.get_dummies(input_df)
 
         return static_df
+
 
 def create_data_arrays(tracking_df: pd.DataFrame, play_df: pd.DataFrame, player_df: pd.DataFrame, interp: int, target_cols: list=[]):   
     print("preparing data arrays") 
