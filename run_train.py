@@ -21,29 +21,33 @@ def parse_config():
 
 def main(config: dict):
     # create experiment folder
-    now = datetime.now().strftime("%m-%d-%y--%H:%M")
+    now = datetime.now().strftime("%m-%d-%y--%H:%M:%S")
     experiment_folder = Path(config["target_folder"]) / ("experiment" + now)
     Path.mkdir(experiment_folder)
+
     train_dataset = datasets.load_dataset(Path(config["data_folder"]) / "train.pt")
     val_dataset = datasets.load_dataset(Path(config["data_folder"]) / "val.pt")
     test_dataset = datasets.load_dataset(Path(config["data_folder"]) / "test.pt")
-    data_config = json.load(open(Path(config["data_folder"]) / "data_config.json", "r"))
+    with open(Path(config["data_folder"]) / "data_config.txt", "r") as f:
+        data_config = f.read()
+
     # debug
     # model
-    model = modeling.NflBERT(
-        train_dataset.dynamic_t.shape[-1] + train_dataset.static_t.shape[-1], # in 
-        train_dataset.target_t.shape[-1], # out
+    model = modeling.NflClassifier(
+        train_dataset.data.shape[-1], # in 
+        train_dataset.target.shape[-1], # out
         hidden_size=config["hidden_size"],
         num_layers=config["num_layers"], 
         num_heads=config["num_heads"], 
         ffn_size=config["ffn_size"],
     ).to(config["device"])
     # train
-    test_loss = train.train(config, model, train_dataset, val_dataset, test_dataset, experiment_folder)
+    trainer = train.NflClassiferTrainer(config, model)
+    test_loss = trainer.train(train_dataset, val_dataset, test_dataset, experiment_folder)
     modeling.save_model(model, experiment_folder / "model.pt")
     # write
     with open(experiment_folder / "out.txt", "a") as outfile:
-        json.dump(data_config, outfile)
+        outfile.write(data_config)
         outfile.write('\n')
         json.dump(config, outfile)
         outfile.write(f"\nTest Loss: {test_loss}")

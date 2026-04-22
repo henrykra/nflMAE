@@ -1,6 +1,6 @@
 {
     "premask": false, 
-    "minimal": false, 
+    "minimal": true, 
     "interp": 40, 
     "folder": "/Users/henrykraessig/code/bdb2025/data/", 
     "targetfolder": "./data", 
