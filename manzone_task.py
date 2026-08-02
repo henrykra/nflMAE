@@ -10,7 +10,7 @@ import json
 import modeling
 from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
-from train import create_dataloaders, check_early_stopping
+from old_train import create_dataloaders, check_early_stopping
 
 # TODO: save model as state_dict
 

@@ -1,0 +1,24 @@
+{
+    "data": {
+        "minimal": false, 
+        "force": true,
+        "bdb_folder": "/Users/henrykraessig/code/bdb2024/data/", 
+        "data_folder": "./data", 
+        "train": 0.7, 
+        "val": 0.15, 
+        "test": 0.15
+    },
+    "model": {
+        "model_dimension": 128,
+        "n_layers": 4,
+        "n_heads": 4
+    },
+    "train": {
+        "batch_size": 128,
+        "lr": 0.0005,
+        "target_folder": "/Users/henrykraessig/code/route2vec/experiments",
+        "epochs": 30,
+        "debug": true,
+        "plot_plays": 0
+    }
+}

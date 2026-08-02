@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 import datasets
 import modeling
-import train
+import old_train
 
 def parse_config(): 
 
@@ -34,7 +34,7 @@ def main(config: dict):
     # debug
     # model
     model = modeling.NflClassifier(
-        train_dataset.data.shape[-1], # in 
+        train_dataset.torch_data.shape[-1], # in 
         train_dataset.target.shape[-1], # out
         hidden_size=config["hidden_size"],
         num_layers=config["num_layers"], 
@@ -42,14 +42,14 @@ def main(config: dict):
         ffn_size=config["ffn_size"],
     ).to(config["device"])
     # train
-    trainer = train.NflClassiferTrainer(config, model)
+    trainer = old_train.NflClassiferTrainer(config, model)
     test_loss = trainer.train(train_dataset, val_dataset, test_dataset, experiment_folder)
     modeling.save_model(model, experiment_folder / "model.pt")
     # write
     with open(experiment_folder / "out.txt", "a") as outfile:
         outfile.write(data_config)
         outfile.write('\n')
-        json.dump(config, outfile)
+        json.dump(config, outfile, indent=2)
         outfile.write(f"\nTest Loss: {test_loss}")
     
     return
