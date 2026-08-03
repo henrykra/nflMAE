@@ -47,30 +47,59 @@ def train(
     # start tensorboard
     writer = SummaryWriter(experiment_folder)
 
+    writer.add_custom_scalars({
+        'Activations': {'block_activations': ['Multiline', ['Blocks/Act/norm_0', 'Blocks/Act/norm_1', 'Blocks/Act/norm_2', 'Blocks/Act/norm_3']]},
+        'Gradients': {'block_gradients': ['Multiline', ['Blocks/Grad/norm_0', 'Blocks/Grad/norm_1', 'Blocks/Grad/norm_2', 'Blocks/Grad/norm_3']]}
+    })
+
     train_loader = torch.utils.data.DataLoader(train_set, train_config["batch_size"], collate_fn=datasets.Frame.collate_fn)
-    val_loader = torch.utils.data.DataLoader(val_set, train_config["batch_size"], collate_fn=datasets.Frame.collate_fn)
+    val_loader = torch.utils.data.DataLoader(val_set, train_config["batch_size"], collate_fn=datasets.Frame.collate_fn, shuffle=False)
     test_loader = torch.utils.data.DataLoader(test_set, train_config["batch_size"], collate_fn=datasets.Frame.collate_fn)
     
     optim = torch.optim.AdamW(
         params=model.parameters(), 
-        lr=train_config["lr"]
+        lr=train_config["lr"],
+
     )
 
     loss_fn = torch.nn.MSELoss(reduction='mean')
 
     try:
         for epoch in range(train_config["epochs"]):
+            grad_norms = {}
+            act_norms = {}
+            handles = []
+            total_grad_norm = None
+            if epoch % train_config['log_every'] == 0: 
+                grad_norms, act_norms, handles = utils.register_hooks(model)
+
+                total_grad_norm = utils.total_grad_norm(model)
+
+
             
             train_loss = train_epoch(train_loader, model, optim, loss_fn)
             writer.add_scalar('Loss/train', train_loss, epoch)
 
+            for i, norm in enumerate(grad_norms.values()): 
+                writer.add_scalar(f'Blocks/Grad/norm_{i}', norm, epoch)
+
+            for i, norm in enumerate(act_norms.values()): 
+                writer.add_scalar(f'Blocks/Act/norm_{i}', norm, epoch)
+
+            if total_grad_norm is not None: 
+                writer.add_scalar(f'Grad/norm', total_grad_norm, epoch)
+
+
+            for handle in handles: 
+                handle.remove()
+            
             val_loss = val_epoch(val_loader, model, loss_fn)
             writer.add_scalar('Loss/val', val_loss, epoch)
 
-            if train_config['plot_plays'] < 1: 
+            if train_config['log_every'] < 1: 
                 continue    
 
-            if epoch % train_config['plot_plays'] == 0: 
+            if epoch % train_config['log_every'] == 0: 
                 with torch.no_grad(): 
                     idx = np.random.randint(0, len(val_set) - 1)
                     input_sample = val_set[idx].feats.cpu()
@@ -83,13 +112,18 @@ def train(
                     img = Image.open(io.BytesIO(img_bytes))
                     
                     writer.add_image(f"sample/{epoch}", np.array(img).transpose([2, 0, 1]))
+
+                
+
+
+            
     except KeyboardInterrupt: 
         print()
         logger.warning(f"Training interrupted after {epoch} steps")
 
 
     # test model
-    norms, stds = utils.register_hooks(model)
+    # norms, stds = utils.register_hooks(model)
     test_ade = test_model(test_loader, model)
 
     if False:
@@ -97,6 +131,14 @@ def train(
         img_bytes = fig.to_image(format='jpg')
         img = Image.open(io.BytesIO(img_bytes))
         img.save(Path(experiment_folder, 'layers.jpg'))
+
+    writer.add_hparams({'lr': train_config['lr'],
+                        'bsize': train_config['batch_size']},
+                        {'ade': test_ade},
+                        run_name=experiment_folder)
+
+    writer.flush()
+    writer.close()
 
     return test_ade
 
@@ -122,6 +164,13 @@ def train_epoch(
         out = model(frame)
 
         loss = loss_fn(out, frame.target)
+
+        if not torch.isfinite(loss): 
+            logger.warning("Infinte loss, skipping batch")
+            continue
+
+
+
         train_loss += loss.item()
         c += 1
 
@@ -240,17 +289,27 @@ def main(config: dict):
 
 
     model_config = config["model"]
-    model = models.MyModel(
-        feature_channels = train_set.channels(),
-        model_dimension=model_config["model_dimension"],
-        hidden_dimension=model_config["model_dimension"] * 4,
-        heads = model_config["n_heads"],
-        attn_drop=.3,
-        proj_drop=.3,
-        ffn_drop=.3,
-        depth=model_config["n_layers"],
-        out_channels=train_set.target_channels(),
-    ).to(device)
+    if model_config['model'] == 'my': 
+        model = models.MyModel(
+            feature_channels = train_set.channels(),
+            model_dimension=model_config["model_dimension"],
+            hidden_dimension=model_config["model_dimension"] * 4,
+            heads = model_config["n_heads"],
+            attn_drop=.3,
+            proj_drop=.3,
+            ffn_drop=.3,
+            depth=model_config["n_layers"],
+            out_channels=train_set.target_channels(),
+            add_rpb=model_config['rpb']
+        ).to(device)
+    elif model_config['model'] == 'stt':
+        model = models.SportsTransformer(
+            train_set.channels(),
+            model_config['model_dimension'],
+            model_config['n_layers'],
+        ).to(device)
+    elif model_config['model'] == 'zoo': 
+        pass
 
     train_config = config["train"]
     print(f'Training model for {train_config["epochs"]} epochs')
@@ -263,7 +322,7 @@ def main(config: dict):
     }
 
     with open(Path(experiment_folder, 'result.json'), 'w') as f:
-        json.dump(out_config, f)
+        json.dump(out_config, f, indent=4)
 
     return 
 
@@ -271,6 +330,7 @@ def main(config: dict):
 
 if __name__ == "__main__": 
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+    logging.getLogger('utils').setLevel(logging.DEBUG)
     logging.getLogger("choreographer").setLevel(logging.WARNING)
     logging.getLogger("kaleido").setLevel(logging.WARNING)
 

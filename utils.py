@@ -5,6 +5,9 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 import pandas as pd
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def plot_frame_tensor(
@@ -98,28 +101,85 @@ def plot_frame_tensor(
     return fig
 
 
-
+# TODO: do these hooks only set a value for the last batch in each train set?
 def register_hooks(model: torch.nn.Module):
 
-    norms = {}
-    stds = {}
-    def get_act(idx): 
-        
-        def hook(module, args, output): 
-            act = output.detach()
-            norms[idx] = act.norm().item()
-            stds[idx] = act.std().item()
+    handles = []
+
+    grad_norms = {}
+    def make_block_grad_norm_hook(name): 
+
+        def hook(module, grad_input, grad_output): 
+            grads = [g for g in grad_output if g is not None]
+
+            if not grads: 
+                return
+
+            norm = torch.cat([g.detach().flatten() for g in grads]).norm().item()
+
+            grad_norms[name] = norm
 
         return hook
-        
-
-    for i, module in enumerate(model.blocks): 
-        module.register_forward_hook(get_act(i))
 
 
-    return norms, stds
+    act_norms = {}
+    def make_block_act_norm_hook(name): 
+
+        def hook(module, input, output): 
+
+            act_norm = output.detach().norm().item()
+            act_norms[name] = act_norm
+
+
+        return hook
+
+
+    def make_rbp_norm_hook(name): 
+        def hook(module, input, output): 
+
+            pass
+            # logger.debug(output.detach().norm())
+
+        return hook
+            
+
 
     
+
+    if hasattr(model, 'blocks'): 
+        for i, block in enumerate(model.blocks): 
+            handle = block.register_full_backward_hook(make_block_grad_norm_hook(f'block.{i}'))
+            handles.append(handle)
+
+            handle = block.register_forward_hook(make_block_act_norm_hook(f'block_{i}'))
+            handles.append(handle)
+
+
+        if hasattr(model, 'add_rpb') and model.add_rpb:
+            for i, block in enumerate(model.blocks): 
+                handle = block.attn_layer.RPB.register_forward_hook(make_rbp_norm_hook(f'block_{i}'))
+                handles.append(handle)
+                
+    elif hasattr(model, 'transformer_encoder'): 
+
+        for i, layer in enumerate(model.transformer_encoder.layers): 
+            handle = layer.register_forward_hook(make_block_act_norm_hook(f'block_{i}'))
+            handles.append(handle)
+
+            handle = layer.register_full_backward_hook(make_block_grad_norm_hook(f'block_{i}'))
+            handles.append(handle)
+
+
+    return grad_norms, act_norms, handles
+
+
+def total_grad_norm(model: torch.nn.Module):
+    total_sq = 0.0
+    for p in model.parameters():
+        if p.grad is not None:
+            total_sq += p.grad.detach().norm().item() ** 2
+    return total_sq ** 0.5
+
 
 
 def plot_activation_stats(norms: dict, stds: dict): 

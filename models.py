@@ -136,6 +136,7 @@ class MyBlock(nn.Module):
                  proj_drop: float,
                  ffn_drop: float,
                  ffn_act: nn.Module=nn.GELU,
+                 add_rpb: bool=True
                  ):
         
         super().__init__()
@@ -147,7 +148,7 @@ class MyBlock(nn.Module):
 
         self.ln1 = nn.LayerNorm(self.d)
         self.ln2 = nn.LayerNorm(self.d)
-        self.attn_layer = Layer(self.d, heads, attn_drop, proj_drop)
+        self.attn_layer = Layer(self.d, heads, attn_drop, proj_drop, add_rpb=add_rpb)
 
 
         self.mlp = nn.Sequential(
@@ -178,7 +179,6 @@ class MyBlock(nn.Module):
    
 
 
-
 class MyModel(nn.Module):
 
     def __init__(
@@ -193,10 +193,11 @@ class MyModel(nn.Module):
             depth: int,
             out_channels: int,
             ffn_act: nn.Module=nn.GELU,
+            add_rpb: bool=True
     ): 
         super().__init__()
 
-        
+        self.add_rpb = add_rpb
         self.bn = nn.BatchNorm1d(feature_channels)
 
         self.embed_layer = nn.Sequential(
@@ -205,7 +206,7 @@ class MyModel(nn.Module):
         )
         
         self.blocks = nn.ModuleList([
-            MyBlock(model_dimension, hidden_dimension, heads, attn_drop, proj_drop, ffn_drop, ffn_act=ffn_act)
+            MyBlock(model_dimension, hidden_dimension, heads, attn_drop, proj_drop, ffn_drop, ffn_act=ffn_act, add_rpb=add_rpb)
             for _ in range(depth)
         ])
 
@@ -216,7 +217,7 @@ class MyModel(nn.Module):
             nn.ReLU(),
             nn.Dropout(proj_drop),
             nn.Linear(model_dimension // 2, model_dimension // 4),
-            nn.BatchNorm1d(model_dimension // 4),
+            # nn.BatchNorm1d(model_dimension // 4),
             nn.ReLU(),
             nn.Dropout(proj_drop),
             nn.Linear(model_dimension // 4, out_channels)
@@ -337,7 +338,7 @@ class SportsTransformer(nn.Module):
             nn.Linear(model_dim // 4, 2),
         )
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, frame: datasets.Frame) -> Tensor:
         """
         Forward pass of the SportsTransformer.
 
@@ -348,6 +349,7 @@ class SportsTransformer(nn.Module):
             Tensor: Predicted tackle location of shape [batch_size, 2].
         """
         # x: [B: batch_size, P: # of players, F: feature_len]
+        x = frame.feats
         B, P, F = x.size()
 
         # Normalize features
