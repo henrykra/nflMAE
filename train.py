@@ -169,12 +169,11 @@ def train_epoch(
             logger.warning("Infinte loss, skipping batch")
             continue
 
-
-
         train_loss += loss.item()
         c += 1
 
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
         optim.step()
 
     return train_loss / c
@@ -300,7 +299,8 @@ def main(config: dict):
             ffn_drop=.3,
             depth=model_config["n_layers"],
             out_channels=train_set.target_channels(),
-            add_rpb=model_config['rpb']
+            add_rpb=model_config["rpb"],
+            norm_first=model_config["norm_first"]
         ).to(device)
     elif model_config['model'] == 'stt':
         model = models.SportsTransformer(

@@ -56,6 +56,8 @@ class Layer(nn.Module):
         self.add_rpb = add_rpb
         self.RPB = RPB(model_dimension // 4, heads)
 
+        # self.rpb_scale = nn.Parameter(torch.Tensor(1), requires_grad=True)
+
         
 
     def forward(self, coords, feats: torch.Tensor):
@@ -69,7 +71,7 @@ class Layer(nn.Module):
         q, k, v = qkv.unbind(dim=0)
         
         # attention
-        attn = q @ k.transpose(-2, -1) * self.scale # B H P P
+        attn = q @ k.transpose(-2, -1) * self.scale 
 
         # add rpb
         if self.add_rpb: 
@@ -136,7 +138,8 @@ class MyBlock(nn.Module):
                  proj_drop: float,
                  ffn_drop: float,
                  ffn_act: nn.Module=nn.GELU,
-                 add_rpb: bool=True
+                 add_rpb: bool=True,
+                 norm_first: bool=True,
                  ):
         
         super().__init__()
@@ -158,23 +161,44 @@ class MyBlock(nn.Module):
             nn.Linear(self.hd, self.d),
             nn.Dropout(ffn_drop)
         )
+        self.norm_first = norm_first
+
 
     def forward(self, coords: torch.Tensor, feats: torch.Tensor):
         
         skip = feats
 
-        feats = self.ln1(feats)
+        if self.norm_first: 
+            feats = self.ln1(feats)
     
         feats = self.attn_layer(coords, feats)
         feats = skip + feats
+        if not self.norm_first: 
+            feats = self.ln1(feats)
 
         skip = feats
-        feats = self.ln2(feats)
+        if self.norm_first: 
+            feats = self.ln2(feats)
+
         feats = self.mlp(feats)
 
         feats = skip + feats
+        if not self.norm_first: 
+            feats = self.ln2(feats)
 
         return feats
+
+
+class AttentionPooling(nn.Module):
+
+    def __init__(self): 
+        super().__init__()
+
+
+    def forward(self, feats: torch.Tensor): 
+        ...
+
+
 
    
 
@@ -193,7 +217,8 @@ class MyModel(nn.Module):
             depth: int,
             out_channels: int,
             ffn_act: nn.Module=nn.GELU,
-            add_rpb: bool=True
+            add_rpb: bool=True,
+            norm_first: bool=True
     ): 
         super().__init__()
 
@@ -206,7 +231,7 @@ class MyModel(nn.Module):
         )
         
         self.blocks = nn.ModuleList([
-            MyBlock(model_dimension, hidden_dimension, heads, attn_drop, proj_drop, ffn_drop, ffn_act=ffn_act, add_rpb=add_rpb)
+            MyBlock(model_dimension, hidden_dimension, heads, attn_drop, proj_drop, ffn_drop, ffn_act=ffn_act, add_rpb=add_rpb, norm_first = norm_first)
             for _ in range(depth)
         ])
 
@@ -217,13 +242,14 @@ class MyModel(nn.Module):
             nn.ReLU(),
             nn.Dropout(proj_drop),
             nn.Linear(model_dimension // 2, model_dimension // 4),
-            # nn.BatchNorm1d(model_dimension // 4),
             nn.ReLU(),
+            nn.LayerNorm(model_dimension // 4),
             nn.Dropout(proj_drop),
             nn.Linear(model_dimension // 4, out_channels)
         )
 
         self.final_norm = nn.LayerNorm(model_dimension)
+        self.norm_first = norm_first
 
 
     def forward(self, frame: datasets.Frame):

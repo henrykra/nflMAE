@@ -13,7 +13,8 @@
         "model_dimension": 128,
         "n_layers": 4,
         "n_heads": 4,
-        "rpb": true
+        "rpb": true,
+        "norm_first": true
     },
     "train": {
         "batch_size": 256,
