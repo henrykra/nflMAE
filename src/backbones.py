@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import einops
 import datasets
+from functools import partial
 
 # Notes
 # implement the zoo architecture and sportstrackingtransformer, use the same test task
@@ -271,17 +272,6 @@ class MyModel(nn.Module):
 
         return self.decoder(feats)
         
-
-
-
-
-
-
-
-
-
-
-
 
 
 

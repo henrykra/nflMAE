@@ -14,8 +14,9 @@ import numpy as np
 import bdb2025
 import bdb2024
 import datasets
-import models
+import src.backbones as backbones
 import utils
+import hooks
 
 logger = logging.getLogger(__name__)
 device = torch.device('mps')
@@ -74,8 +75,6 @@ def train(
                 grad_norms, act_norms, handles = utils.register_hooks(model)
 
                 total_grad_norm = utils.total_grad_norm(model)
-
-
             
             train_loss = train_epoch(train_loader, model, optim, loss_fn)
             writer.add_scalar('Loss/train', train_loss, epoch)
@@ -240,101 +239,177 @@ def calculate_de(target: torch.Tensor, pred: torch.Tensor):
 
 
 
-def main(config: dict): 
-    
-    # load bdb data
-    data_config = config["data"]
-    data_path = Path(
-        data_config['data_folder']) / ("bdb2024" + ("_minimal.parquet" if data_config["minimal"] else ".parquet")
-    )
 
-    if data_config['force'] or not data_path.exists(): 
-        t1 = time.time()
-        bdb2024.run_data_pipeline(
-            Path(data_config['bdb_folder']), 
-            Path(data_config['data_folder']), 
-            minimal=data_config['minimal']
+
+
+class CosineScheduler(torch.optim.lr_scheduler.LRScheduler):
+    def __init__(
+        self,
+        optimizer: torch.optim.Optimizer,
+        base_value,
+        final_value,
+        total_iters,
+        start_value=0,
+        warmup_iters=0,
+        freeze_value=None,
+        freeze_iters=0,
+    ):
+        if optimizer: 
+            super().__init__(optimizer) # TODO: checkpointing
+
+        self.base_value = base_value
+        self.final_value = final_value
+        self.total_iters = total_iters
+
+        warmup_schedule = np.linspace(start_value, base_value, warmup_iters)
+
+        if freeze_value is None:
+            freeze_value = final_value
+        freeze_schedule = np.ones(freeze_iters) * freeze_value
+
+        iters = np.arange(total_iters - warmup_iters - freeze_iters)
+        schedule = final_value + 0.5 * (base_value - final_value) * (
+            1 + np.cos(np.pi * iters / len(iters))
         )
-        logger.info(f"Data pipeline completed in {time.time() - t1:.0f} seconds")
-   
-    # set index so that the train/test split keeps frames together
-    logger.info(f"reading dataframe from {data_path}")
-    df = pd.read_parquet(data_path).set_index(['gameId', 'playId'])
-    
-    train_idx, val_idx, test_idx = datasets.train_val_test_split_df(
-        df, 
-        data_config['train'], data_config['val'], data_config['test']
-    )
+        self.schedule = np.concatenate((warmup_schedule, schedule, freeze_schedule))
+        self.iter = 0
 
-    train_set_path = Path(data_config["data_folder"], "train.pt")
-    val_set_path = Path(data_config["data_folder"], "val.pt")
-    test_set_path = Path(data_config["data_folder"], "test.pt")
 
-    if data_config['force'] or data_config['minimal'] or not (train_set_path.exists() and val_set_path.exists() and test_set_path.exists()): 
-        train_set = datasets.TacklePosDataset(df.loc[train_idx].copy())
-        val_set = datasets.TacklePosDataset(df.loc[val_idx].copy())
-        test_set = datasets.TacklePosDataset(df.loc[test_idx].copy())
+    # TODO: define param groups
+    def get_lr(self): 
+        lrs = []
+        for param_group in self.optimizer.param_groups:
+            lrs.append(self.get(self.iter))
+        
 
-        if not data_config["minimal"]: 
-            torch.save(train_set, train_set_path)
-            torch.save(val_set, val_set_path)
-            torch.save(test_set, test_set_path)
-    else: 
-        train_set = torch.load(train_set_path, weights_only=False)
-        val_set = torch.load(val_set_path, weights_only=False)
-        test_set = torch.load(test_set_path, weights_only=False)
-        logger.info(f"Reading torch datasets from {data_config['data_folder']}")
+    def get(self, it):
+        if it >= self.total_iters:
+            return self.final_value
+        else:
+            return self.schedule[it]
+
+    def step(self):        
+        self.iter += 1
+
+
+    def reset(self):
+        self.iter = 0
+
+    def __getitem__(self, it):
+        return self.get(it)
 
 
 
-    model_config = config["model"]
-    if model_config['model'] == 'my': 
-        model = models.MyModel(
-            feature_channels = train_set.channels(),
-            model_dimension=model_config["model_dimension"],
-            hidden_dimension=model_config["model_dimension"] * 4,
-            heads = model_config["n_heads"],
-            attn_drop=.3,
-            proj_drop=.3,
-            ffn_drop=.3,
-            depth=model_config["n_layers"],
-            out_channels=train_set.target_channels(),
-            add_rpb=model_config["rpb"],
-            norm_first=model_config["norm_first"]
-        ).to(device)
-    elif model_config['model'] == 'stt':
-        model = models.SportsTransformer(
-            train_set.channels(),
-            model_config['model_dimension'],
-            model_config['n_layers'],
-        ).to(device)
-    elif model_config['model'] == 'zoo': 
-        pass
 
-    train_config = config["train"]
-    print(f'Training model for {train_config["epochs"]} epochs')
-    experiment_folder = make_experiment_folder(train_config)
-    test_ade = train(model, train_set, val_set, test_set, train_config, experiment_folder)
 
-    out_config = {
-        'config': config,
-        'metric': test_ade
-    }
+class SSLTrainer: 
 
-    with open(Path(experiment_folder, 'result.json'), 'w') as f:
-        json.dump(out_config, f, indent=4)
+    def __init__(
+            self,
+            cfg: dict,
+            model: torch.nn.Module,
+            hooks: hooks.Hooks,
+            dataset: datasets.FrameDataset,
 
-    return 
 
-    
+    ): 
+        self.cfg = cfg
+        
+        self.model = model
 
-if __name__ == "__main__": 
-    logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-    logging.getLogger('utils').setLevel(logging.DEBUG)
-    logging.getLogger("choreographer").setLevel(logging.WARNING)
-    logging.getLogger("kaleido").setLevel(logging.WARNING)
+        # build dataloaders
+        self.train_dataloader = self.build_dataloader(dataset) # TODO new collate function
+        # build optimizer
+        self.optim = self.build_optimizer()
 
-    config = parse_config()
+        self.num_epochs = cfg["n_epochs"]
+        self.total_steps = len(self.train_dataloader) * self.num_epochs
 
-    main(config)
-    print('done')
+        # build schedulers
+        self.lr_scheduler = CosineScheduler(self.optim,) # TODO: give config[lr_schedule] = {...}
+        # TODO: weight decay schedule
+        self.momentum_scheduler = CosineScheduler()
+        self.temperature_scheduler = CosineScheduler()
+        self.mask_scheduler = CosineScheduler()
+        # TODO: mask size vs mask ratio vs both?
+        
+        # register hooks
+        self.hooks = hooks
+
+
+        
+
+
+    def build_dataloader(self, dataset: torch.utils.data.Dataset):
+        dataloader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=self.cfg["batch_size"]
+            
+        )
+        return dataloader
+
+
+    def train(
+            self, 
+    ): 
+        self.hooks.before_train()
+
+        # TODO: support resume training
+        for epoch in range(self.num_epochs):
+
+            self.hooks.before_epoch(epoch)
+            self.train_epoch()
+
+            self.hooks.after_epoch(epoch)
+
+        self.hooks.after_train()
+
+
+
+    def train_epoch(self): 
+        self.model.train()
+        for step, minibatch in enumerate(self.train_dataloader): 
+            self.hooks.before_step(step)
+            momentum = self.momentum_scheduler.get()
+            temperature = self.temperature_scheduler.get()
+            mask_ratio = self.mask_scheduler.get()
+
+            step_dict = {"momentum": momentum, "temperature": temperature, "mask_ratio": mask_ratio}
+
+            self.optim.zero_grad()
+            losses = self.model(minibatch, step_dict)
+
+            self.model.student_backprop(losses)
+            torch.nn.utils.clip_grad_norm_() # just student parameters
+            self.optim.step()
+
+            self.model.update_teacher()
+
+            self.momentum_scheduler.step()
+            self.temperature_scheduler.step()
+            self.mask_scheduler.step()
+            self.lr_scheduler.step()
+
+            self.hooks.after_step(step)
+
+
+
+
+
+    def build_optimizer(self, model) -> torch.optim.Optimizer: 
+
+        optim = torch.optim.AdamW(
+            self.model.parameters() # TODO: param groups (last layer lr)
+        )
+        return optim
+
+
+
+
+
+
+
+
+
+
+

@@ -144,8 +144,6 @@ def register_hooks(model: torch.nn.Module):
             
 
 
-    
-
     if hasattr(model, 'blocks'): 
         for i, block in enumerate(model.blocks): 
             handle = block.register_full_backward_hook(make_block_grad_norm_hook(f'block.{i}'))
@@ -215,3 +213,49 @@ def plot_activation_stats(norms: dict, stds: dict):
     fig.update_xaxes(title_text="Layer")
 
     return fig
+
+
+class CosineScheduler(object):
+    def __init__(
+        self,
+        base_value,
+        final_value,
+        total_iters,
+        start_value=0,
+        warmup_iters=0,
+        freeze_value=None,
+        freeze_iters=0,
+    ):
+        self.base_value = base_value
+        self.final_value = final_value
+        self.total_iters = total_iters
+
+        warmup_schedule = np.linspace(start_value, base_value, warmup_iters)
+
+        if freeze_value is None:
+            freeze_value = final_value
+        freeze_schedule = np.ones(freeze_iters) * freeze_value
+
+        iters = np.arange(total_iters - warmup_iters - freeze_iters)
+        schedule = final_value + 0.5 * (base_value - final_value) * (
+            1 + np.cos(np.pi * iters / len(iters))
+        )
+        self.schedule = np.concatenate((warmup_schedule, schedule, freeze_schedule))
+        self.iter = 0
+
+    def get(self, it):
+        if it >= self.total_iters:
+            return self.final_value
+        else:
+            return self.schedule[it]
+
+    def step(self):
+        value = self.get(self.iter)
+        self.iter += 1
+        return value
+
+    def reset(self):
+        self.iter = 0
+
+    def __getitem__(self, it):
+        return self.get(it)
