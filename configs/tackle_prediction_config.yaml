@@ -1,0 +1,16 @@
+data: 
+  bdb_folder: /Users/henrykraessig/code/bdb2024/data
+  data_folder: /Users/henrykraessig/code/route2vec/data
+  force: True
+
+train: 
+  target_folder: /Users/henrykraessig/code/route2vec/experiments
+  extra_features: 2
+  target_features: 2
+  epochs: 100
+  batch_size: 256
+  lr: 0.00005
+
+probe_type: linprobe
+
+model: /Users/henrykraessig/code/route2vec/rest.pt

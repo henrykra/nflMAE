@@ -34,7 +34,7 @@ class Layer(nn.Module):
                  heads: int,
                  attn_drop: float,
                  proj_drop: float,
-                 add_rpb: bool=True
+                 add_rpb: bool=True,
     ):
         super().__init__()
         
@@ -57,15 +57,20 @@ class Layer(nn.Module):
         self.add_rpb = add_rpb
         self.RPB = RPB(model_dimension // 4, heads)
 
+        self.rel_cls_token = nn.Parameter(torch.Tensor(1), requires_grad=True)
+
         # self.rpb_scale = nn.Parameter(torch.Tensor(1), requires_grad=True)
 
         
 
-    def forward(self, coords, feats: torch.Tensor):
+    def forward(self, coords, feat: torch.Tensor):
+        B, P, D = feat.shape
+        if coords.shape[1] != feat.shape[1]: 
 
-        # feats = B P D
+            coords = torch.cat([self.rel_cls_token[None, None, :].repeat(B, 1, 2), coords], dim=1)
+        # feat = B P D
         # coords = B P 2
-        qkv = self.qkv_proj(feats) # B P 3D
+        qkv = self.qkv_proj(feat) # B P 3D
 
         
         qkv: torch.Tensor = einops.rearrange(qkv, 'B P (x c h) -> x B h P c', x=3, h=self.h, c=self.d // self.h)
@@ -81,12 +86,12 @@ class Layer(nn.Module):
         attn = self.softmax(attn)
         attn = self.attn_dropout(attn)
         
-        feats = attn @ v
+        feat = attn @ v
 
-        feats = einops.rearrange(feats, 'B H P C -> B P (H C)')
-        feats = self.proj_dropout(self.out_proj(feats))
+        feat = einops.rearrange(feat, 'B H P C -> B P (H C)')
+        feat = self.proj_dropout(self.out_proj(feat))
 
-        return feats
+        return feat
 
 
 # relative position bias
@@ -165,29 +170,29 @@ class MyBlock(nn.Module):
         self.norm_first = norm_first
 
 
-    def forward(self, coords: torch.Tensor, feats: torch.Tensor):
+    def forward(self, coords: torch.Tensor, feat: torch.Tensor):
         
-        skip = feats
+        skip = feat
 
         if self.norm_first: 
-            feats = self.ln1(feats)
+            feat = self.ln1(feat)
     
-        feats = self.attn_layer(coords, feats)
-        feats = skip + feats
+        feat = self.attn_layer(coords, feat)
+        feat = skip + feat
         if not self.norm_first: 
-            feats = self.ln1(feats)
+            feat = self.ln1(feat)
 
-        skip = feats
+        skip = feat
         if self.norm_first: 
-            feats = self.ln2(feats)
+            feat = self.ln2(feat)
 
-        feats = self.mlp(feats)
+        feat = self.mlp(feat)
 
-        feats = skip + feats
+        feat = skip + feat
         if not self.norm_first: 
-            feats = self.ln2(feats)
+            feat = self.ln2(feat)
 
-        return feats
+        return feat
 
 
 class AttentionPooling(nn.Module):
@@ -196,7 +201,7 @@ class AttentionPooling(nn.Module):
         super().__init__()
 
 
-    def forward(self, feats: torch.Tensor): 
+    def forward(self, feat: torch.Tensor): 
         ...
 
 
@@ -208,7 +213,6 @@ class MyModel(nn.Module):
 
     def __init__(
             self,
-            feature_channels: int,
             model_dimension: int,
             hidden_dimension: int,
             heads: int,
@@ -216,62 +220,43 @@ class MyModel(nn.Module):
             proj_drop: float,
             ffn_drop: float,
             depth: int,
-            out_channels: int,
-            ffn_act: nn.Module=nn.GELU,
             add_rpb: bool=True,
-            norm_first: bool=True
+            norm_first: bool=True, 
+            add_cls_token: bool=False
     ): 
         super().__init__()
 
         self.add_rpb = add_rpb
-        self.bn = nn.BatchNorm1d(feature_channels)
-
-        self.embed_layer = nn.Sequential(
-            nn.Linear(feature_channels, model_dimension),
-            nn.LayerNorm(model_dimension)
-        )
+        
+        self.model_dimension = model_dimension
         
         self.blocks = nn.ModuleList([
-            MyBlock(model_dimension, hidden_dimension, heads, attn_drop, proj_drop, ffn_drop, ffn_act=ffn_act, add_rpb=add_rpb, norm_first = norm_first)
+            MyBlock(model_dimension, hidden_dimension, heads, attn_drop, proj_drop, ffn_drop, add_rpb=add_rpb, norm_first = norm_first)
             for _ in range(depth)
         ])
 
-        self.pool = nn.AdaptiveAvgPool1d(1)
-
-        self.decoder = nn.Sequential(
-            nn.Linear(model_dimension, model_dimension // 2),
-            nn.ReLU(),
-            nn.Dropout(proj_drop),
-            nn.Linear(model_dimension // 2, model_dimension // 4),
-            nn.ReLU(),
-            nn.LayerNorm(model_dimension // 4),
-            nn.Dropout(proj_drop),
-            nn.Linear(model_dimension // 4, out_channels)
-        )
 
         self.final_norm = nn.LayerNorm(model_dimension)
         self.norm_first = norm_first
+        self.add_cls_token = add_cls_token
+        if self.add_cls_token: 
+            self.cls_token = nn.Parameter(torch.zeros(1, 1, model_dimension), requires_grad=True)
 
 
-    def forward(self, frame: datasets.Frame):
+    def forward(self, feat, coord):
 
-        coords, feats = frame.coords, frame.feats
+        # feat = self.bn(feat.permute(0, 2, 1)).permute(0, 2, 1)
+        # feat = self.embed_layer(feat) - assming already embedded
 
-        feats = self.bn(feats.permute(0, 2, 1)).permute(0, 2, 1)
-        feats = self.embed_layer(feats)
+        if self.add_cls_token: 
+            feat = torch.cat([self.cls_token.expand(feat.shape[0], -1, -1), feat], dim=1)
 
         for block in self.blocks:
-            feats = block(coords, feats)
-        feats = self.final_norm(feats)
+            feat = block(coord, feat)
+        feat = self.final_norm(feat)
         
 
-        # average pooling
-        feats = einops.rearrange(feats, 'B P D -> B D P')
-        feats = self.pool(feats).squeeze(-1)
-        
-
-        return self.decoder(feats)
-        
+        return feat
 
 
 
@@ -354,7 +339,7 @@ class SportsTransformer(nn.Module):
             nn.Linear(model_dim // 4, 2),
         )
 
-    def forward(self, frame: datasets.Frame) -> Tensor:
+    def forward(self, frame) -> Tensor:
         """
         Forward pass of the SportsTransformer.
 
@@ -365,7 +350,7 @@ class SportsTransformer(nn.Module):
             Tensor: Predicted tackle location of shape [batch_size, 2].
         """
         # x: [B: batch_size, P: # of players, F: feature_len]
-        x = frame.feats
+        x = frame.feat
         B, P, F = x.size()
 
         # Normalize features

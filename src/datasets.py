@@ -8,8 +8,11 @@ import logging
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
+
+
 logger = logging.getLogger(__name__)
-    
+device = torch.device('mps')
+
 
 def train_val_test_split_df(df: pd.DataFrame, train_pct: float, val_pct: float, test_pct: float) -> tuple[pd.Index, pd.Index, pd.Index]:
 
@@ -33,6 +36,28 @@ def train_val_test_split_df(df: pd.DataFrame, train_pct: float, val_pct: float, 
     return train_idx, val_idx, test_idx
 
 
+def train_val_split_df(df: pd.DataFrame, train_pct: float, val_pct: float) -> tuple[pd.Index, pd.Index]:
+
+    logger.info(f"making splits at {train_pct}, {val_pct}")
+
+    index = df.index.unique() # split unique df index
+    
+    cats = np.random.choice(
+        a=[0, 1], 
+        size=len(index), 
+        replace=True, 
+        p=[train_pct, val_pct]
+    )
+
+    split = np.stack([index.to_numpy(), cats], axis=-1)
+
+    train_idx = split[split[:, -1] == 0, 0]
+    val_idx = split[split[:, -1] == 1, 0]
+
+    return train_idx, val_idx
+
+
+
 
 class FrameDataset(torch.utils.data.Dataset):
     """Dataset where each sample represents a frame of an nfl play"""
@@ -41,7 +66,7 @@ class FrameDataset(torch.utils.data.Dataset):
         
         self.data = {}
         position_cols = [col for col in merged_df.columns if col.startswith('position')]
-        self.cols = ['x', 'y', 'ox', 'oy', 'vx', 'vy', 'a', 'offense', 'defense', 'height_z', 'weight_z'] + position_cols
+        self.cols = ['x', 'y', 'ox', 'oy', 'vx', 'vy', 'a', 'offense', 'defense', 'height_z', 'weight_z'] # + position_cols
 
         isna = merged_df[self.cols].isna()
         null_columns = isna.columns[isna.any()].tolist()
@@ -68,8 +93,8 @@ class FrameDataset(torch.utils.data.Dataset):
         key = self.idx[idx]
 
         return {
-            "feats": torch.from_numpy(self.data[key]),
-            "coords": torch.from_numpy(self.data[key][:, :1]) # x and y only
+            "feat": torch.from_numpy(self.data[key]),
+            "coord": torch.from_numpy(self.data[key][:, :2]) # x and y only
         }
         
     
@@ -107,12 +132,23 @@ class TacklePosDataset(FrameDataset):
                 how='inner',
                 on=['gameId', 'playId', 'mirrored']
             )
+            .merge(
+                merged_df.loc[merged_df['isBallCarrier'] == 1, ['gameId', 'playId', 'mirrored', 'frameId', 'x', 'y']],
+                how='left',
+                on=['gameId', 'playId', 'mirrored', 'frameId'],
+                suffixes=('', '_bc')
+            )
         )
 
-        kept_keys = list(merged[['gameId', 'playId', 'mirrored', 'frameId']].itertuples(index=False, name=False))
-        target_values = merged[['x', 'y']].to_numpy()
+        kept_keys = list(merged[['gameId', 'playId', 'mirrored', 'frameId']].itertuples(index=False, name=None))
+        target_values = merged[['x', 'y']].to_numpy(dtype=np.float32)
+        bc_locations = merged[['x_bc', 'y_bc']].to_numpy(dtype=np.float32)
+        merged['isBallCarrier'] = (merged[['x', 'y']] == merged[['x_bc', 'y_bc']].rename(columns={'x_bc': 'x', 'y_bc': 'y'})).all(axis=1)
+        bc_mask = merged[['isBallCarrier']].to_numpy(dtype=np.float32)
 
         self.target = dict(zip(kept_keys, target_values))
+        self.bc = dict(zip(kept_keys, bc_locations))
+        self.bc_mask = dict(zip(kept_keys, bc_mask))
         self.data = {k: self.data[k] for k in kept_keys}
         logger.info(f"deleting {len(self.idx) - len(kept_keys)} frames from plays without tackles")
         self.idx = kept_keys
@@ -127,9 +163,11 @@ class TacklePosDataset(FrameDataset):
         key = self.idx[idx]
 
         return {
-            "feats": torch.from_numpy(self.data[key]),
-            "coords": torch.from_numpy(self.data[key][:, :1]), # x and y only,
-            "target": torch.from_numpy(self.target[key])
+            "feat": torch.from_numpy(self.data[key]),
+            "coord": torch.from_numpy(self.data[key][:, :2]), # x and y only,
+            "target": torch.from_numpy(self.target[key] - self.bc[key]), # 0, 0 at current ballcarrier location
+            "bc": torch.from_numpy(self.bc[key]), # ball carrier x/y at the given frame
+            "bc_mask": torch.from_numpy(self.bc_mask[key]) # bool is ballcarrier for all players
         }
 
 
@@ -147,9 +185,9 @@ class TacklePosDataset(FrameDataset):
             .tail(1)
             .set_index(['gameId', 'playId', 'mirrored', 'frameId'])
         )
-        ball_locations = merged_df.loc[~(merged_df['offense'] | merged_df['defense'])].set_index(['gameId', 'playId', 'mirrored', 'frameId'])
+        ball_carrier_locations = merged_df.loc[merged_df['isBallCarrier'] == 1].set_index(['gameId', 'playId', 'mirrored', 'frameId'])
 
-        tackle_locations = ball_locations.loc[tackles.index.unique()]
+        tackle_locations = ball_carrier_locations.loc[tackles.index.unique()]
 
         logger.info(f"{len(tackle_locations)} / {n_plays} plays with tackles loaded")
 
@@ -158,6 +196,11 @@ class TacklePosDataset(FrameDataset):
 
     def target_channels(self):
         return 2 # x, y tackle position
+
+
+    def get_loss_fn(self): 
+
+        return torch.nn.MSELoss()
 
 
 

@@ -127,7 +127,7 @@ def standardize_tracking_plays(tracking_df: pd.DataFrame, play_df: pd.DataFrame)
 
     tracking_df['nflId'] = tracking_df['nflId'].fillna(-1) # football
 
-    play_cols = [col for col in play_df.columns if not col.endswith('Id')]
+    play_cols = [col for col in play_df.columns if not col.endswith('Id') or col == "ballCarrierId"]
 
     return tracking_df.drop(columns=play_cols)
 
@@ -264,7 +264,17 @@ def clean_player_play_data(player_play_df: pd.DataFrame, play_df: pd.DataFrame) 
     player_play_df['defense'] = (merged['club'] == merged['defensiveTeam'])
 
     logger.debug(f"{player_play_df['offense'].isna().sum()} NA \'offense\' values")
-    
+
+    # create is_ballcarrier (bool) in player_play
+    play_df['isBallCarrier'] = 1
+    player_play_df = player_play_df.merge(
+        play_df[['gameId', 'playId', 'ballCarrierId', 'isBallCarrier']],
+        how='left',
+        left_on=('gameId', 'playId', 'nflId'),
+        right_on=('gameId', 'playId', 'ballCarrierId')
+    )
+    player_play_df['isBallCarrier'] = player_play_df['isBallCarrier'].fillna(0)
+
     return player_play_df, play_df
 
 ### MIRROR
@@ -305,7 +315,7 @@ def merge_dataframes(
     tracking_cols = ['gameId', 'playId', 'nflId', 'frameId', 'mirrored', 'x', 'y', 'ox', 'oy', 'vx', 'vy', 'a', 'event']
     tracking_df = tracking_df[tracking_cols].copy()
 
-    player_play_cols = ['gameId', 'playId', 'nflId', 'mirrored', 'offense', 'defense']
+    player_play_cols = ['gameId', 'playId', 'nflId', 'mirrored', 'offense', 'defense', 'isBallCarrier']
     player_play_df = player_play_df[player_play_cols].copy()
 
     player_cols = ['nflId', 'height_z', 'weight_z', 'position']
@@ -336,14 +346,23 @@ def merge_dataframes(
 
 
 
-def run_data_pipeline(data_folder: Path, out_folder: Path, minimal: bool=False):
+def run_data_pipeline(data_folder: Path, out_folder: Path, minimal: bool=False, weeks: list[int]| None=None, df_name: str | None=None):
     logger.info("Running data pipeline")
     logger.info(f"{data_folder}, minimal={minimal}")
     logger.info(f"saving to {out_folder}")
 
     merged_dfs = []
+    if weeks: 
+        week_iter = weeks
+    else: 
+        week_iter = range(MIN_WEEK, MAX_WEEK + 1)
 
-    for week in range(MIN_WEEK, MAX_WEEK + 1): 
+
+    for week in week_iter: 
+        if week < MIN_WEEK or week > MAX_WEEK: 
+            logger.error(f"invalid week {week}, skipping")
+            continue
+
         if minimal:
             tracking = load_csv_data([Path("2024_minimal_tracking.csv")])[0]
         else: 
@@ -387,9 +406,12 @@ def run_data_pipeline(data_folder: Path, out_folder: Path, minimal: bool=False):
     
     merged = pd.concat(merged_dfs)
 
+    if not df_name: 
+        df_name = ("bdb2024" + ("" if not minimal else "_minimal") + ".parquet")
+
     # save
     merged.to_parquet(
-        path = out_folder / ("bdb2024" + ("" if not minimal else "_minimal") + ".parquet"),
+        path = out_folder / df_name,
         index=False
     )
 
