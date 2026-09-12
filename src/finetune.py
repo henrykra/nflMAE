@@ -250,7 +250,7 @@ class AttnProbe(torch.nn.Module):
         )
 
     def forward(self, coord, feat):
-        feat = self.block(coord, feat)
+        feat = self.block(feat, coord)
         feat = self.norm(feat)
 
         pooled = torch.squeeze(self.pooling(feat.permute(0, 2, 1)), -1)

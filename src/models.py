@@ -73,18 +73,20 @@ class REST(nn.Module):
             feat, coord = self.add_mask_tokens(
                 embeds, data_dict['coord'], data_dict['centroid'], data_dict['mask']
             )
+            fids = data_dict['fids']
+            pids = data_dict['pids']
 
         else: 
             # only give the unmasked players to the encoder input
             n_masked = int((~data_dict['mask']).sum() / bs)
             raw_feat = data_dict['feat'][~data_dict['mask']].reshape(bs, n_masked, c)
             coord = data_dict['coord'][~data_dict['mask']].reshape(bs, n_masked, 2)
+            fids = data_dict['fids'][~data_dict['mask']].reshape(bs, n_masked)
+            pids = data_dict['pids'][~data_dict['mask']].reshape(bs, n_masked)
 
             feat = self.embed_layer(raw_feat)
 
-
-
-        encoded = self.encoder(feat, coord)
+        encoded = self.encoder(feat, coord, fids, pids)
         # remove cls token
         if self.cfg['encoder']['add_cls_token']:
             encoded = encoded[:, 1:, :]
@@ -104,7 +106,8 @@ class REST(nn.Module):
             #encoded = mask_tokens.reshape(bs, n, d)
 
             #coord = data_dict['coord'].where(~data_dict['mask'].unsqueeze(-1), data_dict['centroid'])
-    
+
+        # encoded = encoded[:, 23:, :]
             
         predictions = self.decoder_head(self.decoder(encoded, coord))
 
@@ -147,7 +150,9 @@ class REST(nn.Module):
         bs = data_dict['feat'].shape[0]
         c = data_dict['feat'].shape[-1]
 
-        unmasked_embed = self.encoder(data_dict['feat'], data_dict['coord'])
+        embeded = self.embed(data_dict['feat'])
+
+        unmasked_embed = self.encoder(embeded, data_dict['coord'])
 
         if cls_only: 
         # return cls token
@@ -156,56 +161,4 @@ class REST(nn.Module):
             return unmasked_embed
 
 
-    @torch.no_grad()
-    def generate_mask(self, data_dict: dict):
-        """Modifies data dict in place"""
-
-        # determine grid centroids no matter the masking strategy
-        min_coord, _ = data_dict['coord'].min(dim=1)
-        # find patch num for each dimension
-        grid_coord = ((data_dict['coord'] - min_coord.unsqueeze(1)) // self.cfg['grid_size']).int()
-        # grab all points in the same patch
-        unique, cluster = torch.unique(grid_coord.cpu(), dim=1, sorted=True, return_inverse=True)
-        cluster = cluster.to('mps')
-        data_dict['centroid'] = grid_coord * self.cfg['grid_size'] + self.cfg['grid_size'] / 2
-
-        assert not (self.cfg['mask_regions'] and not self.cfg['encode_masks'])# not ready yet, can't handle uneven masking
-
-        if self.cfg['mask_regions']: 
-            # mask some grid patches
-            num_patches = unique.shape[1]
-            mask_patch_num = int(num_patches * self.cfg['mask_ratio'])
-            # shuffle indexes, slice
-            patch_index = torch.randperm(num_patches)
-            mask_patch_index = patch_index[:mask_patch_num]
-
-            # boolean mask
-            player_mask = torch.isin(cluster, mask_patch_index)
-
-            # save mask information for decoder (true = masked)
-            data_dict['mask'] = player_mask
-
-
-        # TODO: mask the football?
-        if self.cfg['mask_players']:
-            N, P, D = data_dict['feat'].shape  
-
-            len_keep = int(P * (1 - self.cfg['mask_ratio']))
-            
-            noise = torch.rand(N, P - 1, device='mps')  # noise in [0, 1], don't noise for the football
-            
-            # sort noise for each sample
-            # = random order of indices - truncate and set those be non-masks
-            ids_shuffle = torch.cat((torch.zeros(N, 1, device="mps", dtype=torch.int32), torch.argsort(noise, dim=1) + 1), dim=1)
-            ids_restore = torch.argsort(ids_shuffle, dim=1)
-            ids_keep = ids_shuffle[:, :len_keep]
-
-            mask = torch.ones([N, P], device='mps')
-            mask[:, :len_keep] = 0
-            mask = torch.gather(mask, dim=1, index=ids_restore)
-            # mask.scatter_(1, ids_keep, 0)
-
-            data_dict['mask'] = mask.bool()
-
-
-        return
+   

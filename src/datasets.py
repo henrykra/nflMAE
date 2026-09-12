@@ -66,7 +66,7 @@ class FrameDataset(torch.utils.data.Dataset):
         
         self.data = {}
         position_cols = [col for col in merged_df.columns if col.startswith('position')]
-        self.cols = ['x', 'y', 'ox', 'oy', 'vx', 'vy', 'a', 'offense', 'defense', 'height_z', 'weight_z'] # + position_cols
+        self.cols = ['x', 'y', 'ox', 'oy', 'vx', 'vy', 'a', 'offense', 'defense', 'height_z', 'weight_z', 'nflId'] # + position_cols
 
         isna = merged_df[self.cols].isna()
         null_columns = isna.columns[isna.any()].tolist()
@@ -77,13 +77,16 @@ class FrameDataset(torch.utils.data.Dataset):
         logger.warning(f"Found non-football columns with null values: {player_null_columns}")
         merged_df = merged_df.fillna(0)
 
+        merged_df = merged_df.sort_values(['gameId', 'playId', 'mirrored', 'frameId', 'nflId'])
+
         values = merged_df[self.cols].to_numpy(dtype=np.float32)
 
         groups = merged_df.groupby(['gameId', 'playId', 'mirrored', 'frameId'], sort=False).indices
         # data (gameId, playid, mirrored, frameid): 23x? array
-        self.data = {key: values[pos] for key, pos in groups.items()}
+        self.data = {key: values[pos, :-1] for key, pos in groups.items()}
+        self.pids = {key: values[pos, -1] for key, pos in groups.items()}
 
-        self.idx = list(self.data.keys())
+        self.idx = list(self.data.keys())  
         logger.info(f"{len(self.idx)} frames loaded")
         logger.info(f"Loaded {self.channels()} channels")
         return
@@ -93,7 +96,7 @@ class FrameDataset(torch.utils.data.Dataset):
         key = self.idx[idx]
 
         return {
-            "feat": torch.from_numpy(self.data[key]),
+            "feat": torch.from_numpy(self.data[key]), 
             "coord": torch.from_numpy(self.data[key][:, :2]) # x and y only
         }
         
@@ -104,7 +107,36 @@ class FrameDataset(torch.utils.data.Dataset):
     
 
     def channels(self): 
-        return len(self.cols)
+        return len(self.cols) - 1
+
+
+class MultiFrameDataset(FrameDataset):
+    frame_dif = 15
+
+    def __init__(self, merged_df: pd.DataFrame):
+        super().__init__(merged_df)
+        self.min_frame_ids = merged_df.groupby(['gameId', 'playId', 'mirrored'])['frameId'].min()
+
+    def __getitem__(self, idx: int):
+        key = self.idx[idx]
+        frameid = key[-1]
+
+        p = self.data[key].shape[0]
+
+        # x frames before, or the first frame
+        newkey = (*key[:-1], frameid - self.frame_dif)
+        min_frameid = self.min_frame_ids.loc[newkey[:-1]]
+        if newkey[-1] < min_frameid:
+            newkey = (*key[:-1], min_frameid)
+
+        return {
+            "feat": torch.cat( (torch.from_numpy(self.data[newkey]), torch.from_numpy(self.data[key])), dim=0),
+            "coord": torch.cat( (torch.from_numpy(self.data[newkey][:, :2]), torch.from_numpy(self.data[key][:, :2])), dim=0), 
+            "fids": torch.repeat_interleave(torch.Tensor([newkey[-1], frameid]), repeats=p),
+            "pids": torch.cat( (torch.from_numpy(self.pids[newkey]), torch.from_numpy(self.pids[key])), dim=0),
+            "weights": torch.Tensor([(frameid - newkey[-1]) / self.frame_dif]).float()
+        }
+
 
 
 
@@ -163,9 +195,9 @@ class TacklePosDataset(FrameDataset):
         key = self.idx[idx]
 
         return {
-            "feat": torch.from_numpy(self.data[key]),
+            "feat": torch.from_numpy(self.data[key]), # drop nflId
             "coord": torch.from_numpy(self.data[key][:, :2]), # x and y only,
-            "target": torch.from_numpy(self.target[key] - self.bc[key]), # 0, 0 at current ballcarrier location
+            "target": torch.from_numpy(self.target[key]), 
             "bc": torch.from_numpy(self.bc[key]), # ball carrier x/y at the given frame
             "bc_mask": torch.from_numpy(self.bc_mask[key]) # bool is ballcarrier for all players
         }

@@ -40,6 +40,43 @@ def dict_to_device(data_dict):
 
 
 
+class MaskedNflLoss(torch.nn.Module):
+
+
+    def __init__(self): 
+        self.position_idx = slice(0, 2)
+        self.position_weight = 1
+
+        self.orientation_idx = slice(2, 4)
+        self.orientation_weight = .5
+
+        self.velocity_idx = slice(4, 7)
+        self.velocity_weight = .5
+
+        self.side_idx = slice(7, 9)
+        self.side_weight = .5
+
+        self.metrics_idx = slice(9, 11)
+        self.metrics_weight = .1
+
+        self.mse_loss = torch.nn.MSELoss()
+        self.bce_loss = torch.nn.BCEWithLogitsLoss()
+
+        
+
+    def forward(self, pred, target): 
+
+        self.mse_loss(pred[:, self.position_idx], target[:, self.position_idx])
+        self.mse_loss(pred[:, self.orientation_idx], target[:, self.orientation_idx])
+        self.mse_loss(pred[:, self.velocity_idx], target[:, self.velocity_idx])
+        self.mse_loss(pred[:, self.metrics_idx], target[:, self.metrics_idx])
+        self.bce_loss(pred[:, self.side_idx], target[:, self.side_idx])
+        self.mse_loss(pred[:, self.metrics_idx], target[:, self.metrics_idx])
+
+        total_loss = ...
+
+
+
 class MAETrainer: 
 
     def __init__(
@@ -74,6 +111,68 @@ class MAETrainer:
         self.lr_scheduler = utils.CosineLRScheduler(self.optim, cfg['lr_base'], cfg['lr_final'], self.total_steps, warmup_iters=cfg['lr_warmup']) # TODO: give config[lr_schedule] = {...}
         # TODO: weight decay schedule
         # TODO: mask schedule
+
+
+    
+    @torch.no_grad()
+    def generate_mask(self, data_dict: dict):
+        """Modifies data dict in place"""
+
+        # determine grid centroids no matter the masking strategy
+        min_coord, _ = data_dict['coord'].min(dim=1)
+        # find patch num for each dimension
+        grid_coord = ((data_dict['coord'] - min_coord.unsqueeze(1)) // self.cfg['grid_size']).int()
+        # grab all points in the same patch
+        unique, cluster = torch.unique(grid_coord.cpu(), dim=1, sorted=True, return_inverse=True)
+        cluster = cluster.to('mps')
+        data_dict['centroid'] = grid_coord * self.cfg['grid_size'] + self.cfg['grid_size'] / 2
+
+        #assert not (self.cfg['mask_regions'] and not self.cfg['encode_masks'])# not ready yet, can't handle uneven masking
+
+        if self.cfg['mask_regions']: 
+            # mask some grid patches
+            num_patches = unique.shape[1]
+            mask_patch_num = int(num_patches * self.cfg['mask_ratio'])
+            # shuffle indexes, slice
+            patch_index = torch.randperm(num_patches)
+            mask_patch_index = patch_index[:mask_patch_num]
+
+            # boolean mask
+            player_mask = torch.isin(cluster, mask_patch_index)
+
+            # save mask information for decoder (true = masked)
+            data_dict['mask'] = player_mask
+
+
+        # TODO: mask the football?
+        if self.cfg['mask_players']:
+            N, P, D = data_dict['feat'].shape  
+            n_maskable = 22
+            assert P >= n_maskable
+
+            len_keep = int(n_maskable * (1 - self.cfg['mask_ratio']))
+            
+            noise = torch.rand(N, n_maskable, device='mps')  # noise in [0, 1], don't noise for the football
+            
+            # sort noise for each sample
+            # = random order of indices - truncate and set those be non-masks
+            ids_shuffle = torch.argsort(noise, dim=1)
+            ids_restore = torch.argsort(ids_shuffle, dim=1)
+            ids_keep = ids_shuffle[:, :len_keep]
+
+            mask = torch.ones([N, P], device='mps')
+            mask[:, :len_keep] = 0
+            mask = torch.gather(mask, dim=1, index=ids_restore)
+            # mask.scatter_(1, ids_keep, 0)
+
+            # only optionally mask the last 22 players
+            if P - n_maskable > 0:
+                mask = torch.cat( (torch.zeros(N, P-n_maskable, device='mps'), mask), dim=-1)
+
+            data_dict['mask'] = mask.bool()
+
+
+        return
 
 
     def build_dataloader(self, dataset: torch.utils.data.Dataset):
@@ -121,7 +220,8 @@ class MAETrainer:
             self.optim.zero_grad()
             minibatch = dict_to_device(minibatch)
 
-            self.model.generate_mask(minibatch)
+            self.generate_mask(minibatch)
+
             pred = self.model(minibatch)
 
             # calculate loss
@@ -152,7 +252,7 @@ class MAETrainer:
             for step, val_minibatch in enumerate(self.val_dataloader):
                 self.run_hooks('before_val_step')
                 val_minibatch = dict_to_device(val_minibatch)
-                self.model.generate_mask(val_minibatch)
+                self.generate_mask(val_minibatch)
                 pred = self.model(val_minibatch)
 
                 loss = self.loss_fn(pred[val_minibatch['mask']], val_minibatch['feat'][val_minibatch['mask']])
@@ -167,9 +267,6 @@ class MAETrainer:
         self.mean_val_loss = total_loss / num_batches
         return
     
-        
-
-        
 
     def build_optimizer(self, model) -> torch.optim.Optimizer: 
 
@@ -207,3 +304,42 @@ class MAETrainer:
 
 
 
+
+class MultiMAETrainer(MAETrainer):
+
+
+
+    def generate_mask(self, data_dict):
+        """Modifies data dict in place"""
+
+        # determine grid centroids no matter the masking strategy
+        min_coord, _ = data_dict['coord'].min(dim=1)
+        # find patch num for each dimension
+        grid_coord = ((data_dict['coord'] - min_coord.unsqueeze(1)) // self.cfg['grid_size']).int()
+        # grab all points in the same patch
+        unique, cluster = torch.unique(grid_coord.cpu(), dim=1, sorted=True, return_inverse=True)
+        cluster = cluster.to('mps')
+        data_dict['centroid'] = grid_coord * self.cfg['grid_size'] + self.cfg['grid_size'] / 2
+
+        N, P, C = data_dict['feat'].shape  
+
+        len_keep = int(P * (1 - self.cfg['mask_ratio']))
+        
+        noise = torch.rand(N, P - 1, device='mps')  # noise in [0, 1], don't noise for the football
+        
+        # sort noise for each sample
+        # = random order of indices - truncate and set those be non-masks
+        ids_shuffle = torch.cat((torch.zeros(N, 1, device="mps", dtype=torch.int32), torch.argsort(noise, dim=1) + 1), dim=1)
+        ids_restore = torch.argsort(ids_shuffle, dim=1)
+        ids_keep = ids_shuffle[:, :len_keep]
+
+        mask = torch.ones([N, P], device='mps')
+        mask[:, :len_keep] = 0
+        mask = torch.gather(mask, dim=1, index=ids_restore)
+        # mask.scatter_(1, ids_keep, 0)
+
+        data_dict['mask'] = mask.bool()
+
+
+        return
+    

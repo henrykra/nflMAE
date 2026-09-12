@@ -7,9 +7,10 @@ train:
   target_folder: /Users/henrykraessig/code/route2vec/experiments
   extra_features: 2
   target_features: 2
-  epochs: 100
+  epochs: 50
   batch_size: 256
-  lr: 0.00005
+  lr: 0.0001
+  use_cls_token: True
 
 probe_type: linprobe
 

@@ -59,15 +59,18 @@ class Layer(nn.Module):
 
         self.rel_cls_token = nn.Parameter(torch.Tensor(1), requires_grad=True)
 
+        self.sid_value = nn.Parameter(torch.Tensor(1), requires_grad=True)
+        self.causal = True
+
         # self.rpb_scale = nn.Parameter(torch.Tensor(1), requires_grad=True)
 
         
 
-    def forward(self, coords, feat: torch.Tensor):
+    def forward(self, feat: torch.Tensor, coord, fids, pids):
         B, P, D = feat.shape
-        if coords.shape[1] != feat.shape[1]: 
+        if coord.shape[1] != feat.shape[1]: 
 
-            coords = torch.cat([self.rel_cls_token[None, None, :].repeat(B, 1, 2), coords], dim=1)
+            coord = torch.cat([self.rel_cls_token[None, None, :].repeat(B, 1, 2), coord], dim=1)
         # feat = B P D
         # coords = B P 2
         qkv = self.qkv_proj(feat) # B P 3D
@@ -75,13 +78,36 @@ class Layer(nn.Module):
         
         qkv: torch.Tensor = einops.rearrange(qkv, 'B P (x c h) -> x B h P c', x=3, h=self.h, c=self.d // self.h)
         q, k, v = qkv.unbind(dim=0)
-        
+
+        if fids is not None: 
+            if fids.shape[-1] != feat.shape[1]: 
+                frameid = fids[:, -1:]
+                nfids = torch.cat((frameid, fids), dim=-1)
+
+            q, k = self.add_rope(q, k, nfids) # TODO: precompute sins/cosines
+
+
         # attention
         attn = q @ k.transpose(-2, -1) * self.scale 
 
         # add rpb
         if self.add_rpb: 
-            attn += self.RPB(self.RPB.get_relative_positions(coords))
+            attn += self.RPB(self.RPB.get_relative_positions(coord))
+
+
+        if pids is not None:
+            if pids.shape[1] != feat.shape[1]:
+                pids = torch.cat( (torch.zeros(B, 1, device='mps'), pids), dim=-1)
+            sid_map = self.get_sid_mask(pids)
+            attn += sid_map.unsqueeze(1) * self.sid_value
+
+        if self.causal and fids is not None: 
+            if fids.shape[-1] != feat.shape[1]:     
+                frameid = fids[:, :1]
+                nfids = torch.cat((frameid, fids), dim=-1)
+            causal_mask = self.get_causal_mask(nfids)
+            attn += causal_mask.unsqueeze(1)
+
 
         attn = self.softmax(attn)
         attn = self.attn_dropout(attn)
@@ -92,6 +118,51 @@ class Layer(nn.Module):
         feat = self.proj_dropout(self.out_proj(feat))
 
         return feat
+
+
+    @staticmethod
+    def add_rope(q, k, fids: torch.Tensor):
+        b, h, p, hd = q.shape
+
+        assert fids.shape == (b,p), f"{fids.shape}, ({b}, {p})"
+        frequencies = 10000 ** -(torch.arange(0, hd, 2, dtype=torch.float, device='mps') / hd)
+
+        position_frequency = fids.unsqueeze(-1) * frequencies.unsqueeze(0)
+        position_encoding = torch.repeat_interleave(position_frequency, torch.ones(hd//2, dtype=torch.int, device="mps")*2, dim=-1)
+        # b, p, hd
+
+        q_rot = q * position_encoding.unsqueeze(1).cos() + rotate_half(q) * position_encoding.unsqueeze(1).sin()
+        k_rot = k * position_encoding.unsqueeze(1).cos() + rotate_half(k) * position_encoding.unsqueeze(1).sin()
+
+        return q_rot, k_rot
+
+
+    @staticmethod
+    def get_sid_mask(pids): 
+        # b, 1, p - b, p, 1 = b, p, p
+        sid_mask = (pids.unsqueeze(1) - pids.unsqueeze(2)) == 0
+        return sid_mask
+
+
+    @staticmethod
+    def get_causal_mask(fids): 
+        causal_mask = ((fids.unsqueeze(1) - fids.unsqueeze(2)) > 0)
+
+        causal_mask = torch.where(causal_mask, -torch.inf, 0)
+
+        return causal_mask
+
+
+
+
+
+
+def rotate_half(u: torch.Tensor): 
+    u = einops.rearrange(u, '... (d r) -> ... d r', r=2)
+    u1, u2 = u.unbind(dim=-1)
+    u = torch.stack((u2, -u1), dim=-1)
+
+    return einops.rearrange(u, '... d r -> ... (d r)', r=2)
 
 
 # relative position bias
@@ -170,14 +241,14 @@ class MyBlock(nn.Module):
         self.norm_first = norm_first
 
 
-    def forward(self, coords: torch.Tensor, feat: torch.Tensor):
+    def forward(self, feat: torch.Tensor, coord: torch.Tensor, fids: torch.Tensor, pids: torch.Tensor):
         
         skip = feat
 
         if self.norm_first: 
             feat = self.ln1(feat)
     
-        feat = self.attn_layer(coords, feat)
+        feat = self.attn_layer(feat, coord, fids, pids)
         feat = skip + feat
         if not self.norm_first: 
             feat = self.ln1(feat)
@@ -193,18 +264,6 @@ class MyBlock(nn.Module):
             feat = self.ln2(feat)
 
         return feat
-
-
-class AttentionPooling(nn.Module):
-
-    def __init__(self): 
-        super().__init__()
-
-
-    def forward(self, feat: torch.Tensor): 
-        ...
-
-
 
    
 
@@ -222,7 +281,9 @@ class MyModel(nn.Module):
             depth: int,
             add_rpb: bool=True,
             norm_first: bool=True, 
-            add_cls_token: bool=False
+            add_cls_token: bool=False,
+            add_rope: bool=False,
+            add_sids: bool=False,
     ): 
         super().__init__()
 
@@ -231,7 +292,7 @@ class MyModel(nn.Module):
         self.model_dimension = model_dimension
         
         self.blocks = nn.ModuleList([
-            MyBlock(model_dimension, hidden_dimension, heads, attn_drop, proj_drop, ffn_drop, add_rpb=add_rpb, norm_first = norm_first)
+            MyBlock(model_dimension, hidden_dimension, heads, attn_drop, proj_drop, ffn_drop, norm_first=norm_first, add_rpb=add_rpb)
             for _ in range(depth)
         ])
 
@@ -242,17 +303,19 @@ class MyModel(nn.Module):
         if self.add_cls_token: 
             self.cls_token = nn.Parameter(torch.zeros(1, 1, model_dimension), requires_grad=True)
 
+        self.add_rope = add_rope
+        self.add_sids = add_sids
 
-    def forward(self, feat, coord):
+
+    def forward(self, feat, coord=None, fids=None, pids=None):
 
         # feat = self.bn(feat.permute(0, 2, 1)).permute(0, 2, 1)
         # feat = self.embed_layer(feat) - assming already embedded
-
         if self.add_cls_token: 
             feat = torch.cat([self.cls_token.expand(feat.shape[0], -1, -1), feat], dim=1)
 
         for block in self.blocks:
-            feat = block(coord, feat)
+            feat = block(feat, coord, fids, pids)
         feat = self.final_norm(feat)
         
 

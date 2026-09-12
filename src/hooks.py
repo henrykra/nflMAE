@@ -95,6 +95,81 @@ class PlotFrame(Hook):
         return t.detach().cpu().numpy()
 
 
+class Plot2Frames(PlotFrame):
+    def after_epoch(self, trainer): 
+        fig, axes = plt.subplots(figsize=(10, 5), ncols=2, sharex=True, sharey=True)
+        n_players = 22 + 1
+
+
+        for i in range(2):
+            # plot a frame from a validation sample for the MAE training task
+            # add the frame to tensorboard images
+            assert hasattr(trainer, 'val_sample') and hasattr(trainer, 'val_prediction') and hasattr(trainer, 'val_mask')
+    
+            if trainer.epoch % self.every != 0: 
+                return
+            
+            unmask_input = self._to_numpy(trainer.val_sample)
+    
+            frame_start = i * n_players
+            frame_end = (i+1) * n_players
+
+            mask = self._to_numpy(trainer.val_mask)[frame_start:frame_end]
+            pred = self._to_numpy(trainer.val_prediction)[frame_start:frame_end]
+    
+            x, y = unmask_input[frame_start:frame_end, 0], unmask_input[frame_start:frame_end, 1]
+            ox, oy = unmask_input[frame_start:frame_end, 2], unmask_input[frame_start:frame_end, 3]
+            offense, defense = unmask_input[frame_start:frame_end, 7], unmask_input[frame_start:frame_end, 8]
+            club = (defense * 2 + offense).astype(int)
+    
+    
+    
+            for c in np.unique(club): 
+                club_mask = (club == c)
+                axes[i].scatter(
+                    x[club_mask], y[club_mask],
+                    c=self.color_map[c], 
+                    label=self.label_map[c],
+                    alpha=~mask[club_mask] * .7 + .3,
+                    s=60, edgecolors='black', linewidths=.5, zorder=3,
+                )
+    
+            x_pred, y_pred = pred[mask.squeeze(), 0], pred[mask.squeeze(), 1]
+            axes[i].scatter(
+                x_pred, y_pred,
+                c="#10ab0e", 
+                label="prediction",
+                alpha=.7,
+                s=60, edgecolors='black', linewidths=.5, zorder=3,
+            )
+    
+    
+            # arrows
+            for xi, yi, oxi, oyi, ci in zip(x, y, ox, oy, club):
+                if ci == 0: # skip ball
+                    continue
+                axes[i].annotate(
+                    '', xy=(xi + 1.5 + oxi, yi + 1.5 * oyi), xytext=(xi, yi),
+                    arrowprops=dict(arrowstyle='->', color='black', lw=1.2),
+                    zorder=2
+                )
+    
+            # keep aspect ratio fixed and field bounds constant
+            axes[i].set_xlim(-10, 40)
+            axes[i].set_ylim(-53.3 / 2, 53.3 / 2)
+            axes[i].set_aspect("equal", adjustable="box")
+            axes[i].set_xlabel("x")
+            axes[i].set_ylabel("y")
+            axes[i].legend(loc="upper right", fontsize=8)
+            axes[i].grid(True)
+    
+        fig.tight_layout()
+        # save figure to tensorboard
+        trainer.writer.add_figure('Samples', fig, trainer.epoch)
+        trainer.writer.flush()
+        return 
+
+
 class PlotTackle(PlotFrame): 
     
     def after_epoch(self, trainer):
@@ -106,9 +181,9 @@ class PlotTackle(PlotFrame):
             return
         
         frame_input = self._to_numpy(trainer.val_sample)
-        target = self._to_numpy(trainer.val_target + trainer.val_bc)
+        target = self._to_numpy(trainer.val_target)
 
-        pred = self._to_numpy(trainer.val_prediction + trainer.val_bc)
+        pred = self._to_numpy(trainer.val_prediction)
 
         x, y = frame_input[:, 0], frame_input[:, 1]
         ox, oy = frame_input[:, 2], frame_input[:, 3]
@@ -306,6 +381,49 @@ class PlotLayerActNorms(Hook):
         
             self.run_hook = False
         return
+
+
+class PlotLayerSidVals(Hook):
+    def before_train(self, trainer): 
+        trainer.writer.add_custom_scalars({
+            'SID Values': {'sid_vals': ['Multiline', ['Blocks/Sid/sid_0', 'Blocks/Sid/sid_1', 'Blocks/Sid/sid_2', 'Blocks/Sid/sid_3']]}
+        })
+        return
+    
+    def before_epoch(self, trainer): 
+        if trainer.epoch % self.every != 0: 
+            return
+        
+        self.run_hook = True
+        # register pytorch hooks
+        self.handles = []
+        self.sid_vals = {}
+        def make_block_act_norm_hook(name): 
+            def hook(module, input, output): 
+                sid_val= module.attn_layer.sid_value.detach().item()
+                self.sid_vals[name] = sid_val
+
+            return hook
+
+        # my model encoder backbone only
+        if hasattr(trainer.model.encoder, 'blocks'): 
+            for i, block in enumerate(trainer.model.encoder.blocks): 
+                handle = block.register_forward_hook(make_block_act_norm_hook(f'block_{i}'))
+                self.handles.append(handle)
+
+
+    def after_train_step(self, trainer): 
+        # logs block activations for the first training batch
+        if self.run_hook: 
+            for i, val in enumerate(self.sid_vals.values()): 
+                trainer.writer.add_scalar(f'Blocks/Sid/sid_{i}', val, trainer.epoch)
+
+            for handle in self.handles: 
+                handle.remove()
+        
+            self.run_hook = False
+        return
+
 
 
 class PrintLosses(Hook): 

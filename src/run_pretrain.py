@@ -54,8 +54,8 @@ def main(config: dict):
     val_set_path = Path(data_config["data_folder"], "val.pt")
 
     if data_config['force'] or data_config['minimal'] or not (train_set_path.exists() and val_set_path.exists()): 
-        train_set = datasets.FrameDataset(df.loc[train_idx].copy())
-        val_set = datasets.FrameDataset(df.loc[val_idx].copy())
+        train_set = datasets.MultiFrameDataset(df.loc[train_idx].copy())
+        val_set = datasets.MultiFrameDataset(df.loc[val_idx].copy())
 
         if not data_config["minimal"]: 
             torch.save(train_set, train_set_path)
@@ -74,9 +74,9 @@ def main(config: dict):
     trainer = train.MAETrainer(train_config, model, train_set, val_set)
     # add hooks
     train_hooks = [
-        hooks.PlotFrame(1), hooks.AddTrainLoss(1), hooks.AddValLoss(1),
+        hooks.Plot2Frames(1), hooks.AddTrainLoss(1), hooks.AddValLoss(1),
         hooks.PlotLayerGrads(1), hooks.PlotLayerActNorms(1), hooks.SaveModel(),
-        hooks.EpochPBar(1)
+        hooks.EpochPBar(1), hooks.PlotLayerSidVals(1),
     ]
     trainer.register_hooks(train_hooks)
 
