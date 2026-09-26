@@ -58,37 +58,60 @@ class REST(nn.Module):
 
 
     def forward(self, data_dict: dict):
-        bs = data_dict['feat'].shape[0]
-        n = data_dict['feat'].shape[1]
-        c = data_dict['feat'].shape[-1]
+        bs, n, c = data_dict['feat'].shape
         d = self.cfg['encoder']['model_dimension']
 
+        feat = data_dict['feat']
+        mask = data_dict['mask']
+        # add in the reference frame
+        if 'reference_feat' in data_dict:
+            n_reference = data_dict['reference_feat'].shape[1]
+            # assert n_reference == n
+
+            feat = torch.cat( (data_dict['reference_feat'], feat), dim=1)
+            mask = torch.cat( (torch.zeros(bs, n_reference, dtype=torch.bool, device='mps'), mask), dim=1)
+
+        coord = data_dict.get('coord')
+        centroid = data_dict.get('centroid')
+        if 'reference_coord' in data_dict:
+            coord = torch.cat( (data_dict['reference_coord'], coord), dim=1)
+            centroid = torch.cat( (data_dict['reference_coord'], centroid), dim=1)
 
         if self.cfg['encode_masks']: 
             # add the mask tokens to the encoder input
 
             # still only embed the unmasked players, don't want leakage
-            embeds = self.embed(data_dict['feat'][~data_dict['mask']].view(bs, -1, c))
+            unmasked_only_feat = feat[~mask].view(bs, -1, c)        
+            embeds = self.embed(unmasked_only_feat)
             
             feat, coord = self.add_mask_tokens(
-                embeds, data_dict['coord'], data_dict['centroid'], data_dict['mask']
+                embeds, coord, centroid, mask
             )
-            fids = data_dict['fids']
-            pids = data_dict['pids']
+            fids = data_dict.get('fids')
+            pids = data_dict.get('pids')
 
         else: 
             # only give the unmasked players to the encoder input
-            n_masked = int((~data_dict['mask']).sum() / bs)
-            raw_feat = data_dict['feat'][~data_dict['mask']].reshape(bs, n_masked, c)
-            coord = data_dict['coord'][~data_dict['mask']].reshape(bs, n_masked, 2)
-            fids = data_dict['fids'][~data_dict['mask']].reshape(bs, n_masked)
-            pids = data_dict['pids'][~data_dict['mask']].reshape(bs, n_masked)
+            n_masked = int((~mask).sum() / bs)
+            raw_feat = feat[~mask].reshape(bs, n_masked, c)
+
+            if coord is not None: 
+                coord = coord[~mask].reshape(bs, n_masked, 2)
+
+            fids = data_dict.get('fids')
+            pids = data_dict.get('pids')
+            if fids is not None:
+                fids = fids[~mask].reshape(bs, n_masked)
+            if pids is not None: 
+                pids = pids[~mask].reshape(bs, n_masked)
 
             feat = self.embed_layer(raw_feat)
 
         encoded = self.encoder(feat, coord, fids, pids)
-        # remove cls token
+        
+        # save cls token
         if self.cfg['encoder']['add_cls_token']:
+            encoder_cls_token = encoded[:, :1, :]
             encoded = encoded[:, 1:, :]
 
 
@@ -99,7 +122,7 @@ class REST(nn.Module):
 
         else: 
             # yes
-            encoded, coord = self.add_mask_tokens(encoded, data_dict['coord'], data_dict['centroid'], data_dict['mask'])
+            encoded, coord = self.add_mask_tokens(encoded, coord, centroid, mask)
             #mask_tokens = self.mask_token.repeat(bs, n, 1)
             # align the mask tokens with their correct coordinate positions
             #mask_tokens[~data_dict['mask']] = encoded.reshape(-1, d)
@@ -107,22 +130,28 @@ class REST(nn.Module):
 
             #coord = data_dict['coord'].where(~data_dict['mask'].unsqueeze(-1), data_dict['centroid'])
 
-        # encoded = encoded[:, 23:, :]
+        if 'reference_feat' in data_dict:
+            encoded = torch.cat( (encoder_cls_token, encoded[:, n_reference:, :]), dim=1)
+            mask = torch.cat( (torch.zeros(bs, 1, dtype=torch.bool, device='mps'), mask[:, n_reference:]), dim=1)
+        if 'reference_coord' in data_dict:
+            coord = coord[:, n_reference:, :]
             
         predictions = self.decoder_head(self.decoder(encoded, coord))
 
-        # remove cls token
+        # remove decoder cls token
         if self.cfg['decoder']['add_cls_token']: 
             predictions = predictions[:, 1:, :]
 
-        return predictions
+        masked_predictions = predictions[mask].view(bs, -1, c)
+
+        return masked_predictions
 
 
 
 
     def add_mask_tokens(self, embedded_features: torch.Tensor, coords: torch.Tensor, centroids, mask: torch.Tensor):
         B, n_masked, D = embedded_features.shape
-        P = coords.shape[1]
+        P = mask.shape[1]
 
         # whole play's worth of mask tokens
         mask_tokens = self.mask_token.repeat(B, P, 1)
@@ -134,7 +163,10 @@ class REST(nn.Module):
         # masked_features = embedded_features.where(~mask.unsqueeze(-1), mask_tokens)
 
         # do the same for coordinates
-        masked_coords = coords.where(~mask.unsqueeze(-1), centroids)
+        if coords is not None and centroids is not None: 
+            centroids[~mask] = coords.reshape(-1, 2)
+            masked_coords = centroids.reshape(B, P, 2)
+            # masked_coords = coords.where(~mask.unsqueeze(-1), centroids)
 
         return masked_features, masked_coords
     
@@ -146,19 +178,22 @@ class REST(nn.Module):
 
 
 
-    def encode(self, data_dict: dict, cls_only=True):
+    def encode(self, data_dict: dict, cls_only=True, token_mask=None):
         bs = data_dict['feat'].shape[0]
         c = data_dict['feat'].shape[-1]
 
         embeded = self.embed(data_dict['feat'])
 
-        unmasked_embed = self.encoder(embeded, data_dict['coord'])
+        unmasked_embed = self.encoder(embeded)
+        d = unmasked_embed.shape[-1]
 
         if cls_only: 
         # return cls token
             return unmasked_embed[:, 0, :]
         else: 
-            return unmasked_embed
+            if token_mask is not None:
+                # remove cls_token
+                # assert there is only one per mask?
+                assert token_mask.shape[1] == unmasked_embed.shape[1] - 1
+                return unmasked_embed[:, 1:, :][token_mask].view(bs, d)
 
-
-   

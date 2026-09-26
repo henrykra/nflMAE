@@ -181,6 +181,15 @@ def filter_route_end_frames(tracking_df: pd.DataFrame) -> pd.DataFrame:
     # potentially complex logic to find when a route runner's designed route has ended
     ...
 
+def filter_early_frames(tracking_df: pd.DataFrame) -> pd.DataFrame:
+    # filter tracking frames within a margin from the earliest frame in the play
+    n = 15
+    logger.info(f"filtering relative frames < {n}")
+    tracking_df['relative_frame'] = tracking_df['frameId'] - tracking_df.groupby(['gameId', 'playId'])['frameId'].transform('min')
+
+    tracking_df = tracking_df.loc[tracking_df['relative_frame'] >= n]
+    return tracking_df
+
 
 def filter_football_tracking_frames(tracking_df: pd.DataFrame) -> pd.DataFrame: 
     return tracking_df.loc[tracking_df['club'] != 'football']
@@ -260,8 +269,8 @@ def clean_player_play_data(player_play_df: pd.DataFrame, play_df: pd.DataFrame) 
 
     merged = player_play_df[['gameId', 'playId', 'club']].merge(play_df[['gameId', 'playId', 'possessionTeam', 'defensiveTeam']].copy(), how='left', on=('gameId', 'playId'))
 
-    player_play_df['offense'] = (merged['club'] == merged['possessionTeam'])
-    player_play_df['defense'] = (merged['club'] == merged['defensiveTeam'])
+    player_play_df['offense'] = (merged['club'] == merged['possessionTeam']).astype('float32')
+    player_play_df['defense'] = (merged['club'] == merged['defensiveTeam']).astype('float32')
 
     logger.debug(f"{player_play_df['offense'].isna().sum()} NA \'offense\' values")
 
@@ -364,7 +373,7 @@ def run_data_pipeline(data_folder: Path, out_folder: Path, minimal: bool=False, 
             continue
 
         if minimal:
-            tracking = load_csv_data([Path("2024_minimal_tracking.csv")])[0]
+            tracking = load_csv_data([Path("../2024_minimal_tracking.csv")])[0]
         else: 
             tracking = load_tracking_data(weeks=week, folder=data_folder)
 
@@ -378,6 +387,7 @@ def run_data_pipeline(data_folder: Path, out_folder: Path, minimal: bool=False, 
         players = clean_player_data(players)
 
         # filter
+        # tracking = filter_early_frames(tracking)
         # tracking = filter_play_start_frames(tracking)
         # tracking = filter_play_end_frames(tracking)
         tracking = filter_outlier_frames(tracking)

@@ -47,7 +47,7 @@ class LinProber:
         self.rest.eval()
         embed_dimension = rest.cfg['encoder']['model_dimension']
 
-        self.probe = torch.nn.Linear(embed_dimension + cfg['extra_features'], cfg['target_features'], device=device)
+        self.probe = torch.nn.Linear(embed_dimension, cfg['target_features'], device=device)
 
         # make experiment folder
         self.experiment_folder = make_experiment_folder(cfg)
@@ -60,11 +60,14 @@ class LinProber:
         # build optimizer
         self.optim = self.build_optimizer()
 
-        self.loss_fn = torch.nn.MSELoss()
+        self.loss_fn = torch.nn.SmoothL1Loss()
 
         self.num_epochs = cfg["epochs"]
         self.epoch = 0
         self.total_steps = len(self.train_dataloader) * self.num_epochs
+
+        self.patience = cfg['patience']
+        self.loss_queue = []
 
         # build schedulers
         # self.lr_scheduler = utils.CosineLRScheduler(self.optim, cfg['lr_base'], cfg['lr_final'], self.total_steps, warmup_iters=cfg['lr_warmup']) # TODO: give config[lr_schedule] = {...}
@@ -91,10 +94,13 @@ class LinProber:
                 self.run_hooks('before_epoch')
                 self.train_epoch()
 
-                self.eval_epoch()
+                stop = self.eval_epoch()
                 self.run_hooks('after_epoch')
 
                 self.epoch += 1
+
+                if stop: 
+                    break
 
         except KeyboardInterrupt: 
             print()
@@ -113,8 +119,7 @@ class LinProber:
             self.optim.zero_grad()
             # get embedding from cls token as linear probing input
             minibatch = dict_to_device(minibatch)
-            cls_token = self.rest.encode(minibatch)
-            probe_in = torch.cat((cls_token, minibatch['bc'].to(device)), dim=-1)
+            probe_in = self.rest.encode(minibatch, self.cfg['use_cls_token'], token_mask=minibatch['bc_mask'])
             pred = self.probe(probe_in)
 
             # calculate loss
@@ -141,8 +146,7 @@ class LinProber:
             for step, val_minibatch in enumerate(self.val_dataloader):
                 self.run_hooks('before_val_step')
                 val_minibatch = dict_to_device(val_minibatch)
-                cls_token = self.rest.encode(val_minibatch)
-                probe_in = torch.cat((cls_token, val_minibatch['bc'].to(device)), dim=-1)
+                probe_in = self.rest.encode(val_minibatch, cls_only=self.cfg['use_cls_token'], token_mask=val_minibatch['bc_mask'])
                 pred = self.probe(probe_in)
 
                 # calculate loss
@@ -160,6 +164,9 @@ class LinProber:
             self.val_prediction = pred[0]
             self.val_target = val_minibatch['target'][0]
 
+        if self.check_early_stopping(total_loss): 
+            return True
+
         self.mean_val_loss = total_loss / num_batches
         return
     
@@ -169,8 +176,7 @@ class LinProber:
         with torch.no_grad(): 
             for step, test_minibatch in enumerate(self.test_dataloader): 
                 test_minibatch = dict_to_device(test_minibatch)
-                cls_token = self.rest.encode(test_minibatch)
-                probe_in = torch.cat((cls_token, test_minibatch['bc'].to(device)), dim=-1)
+                probe_in = self.rest.encode(test_minibatch, self.cfg['use_cls_token'], token_mask=test_minibatch['bc_mask'])
                 pred = self.probe(probe_in)
 
                 de = torch.cat((self.calculate_de(pred.detach().cpu(), test_minibatch['target'].detach().cpu()), de))
@@ -220,6 +226,19 @@ class LinProber:
         for fn in hook_fns: 
             fn(self)
         return
+
+
+    def check_early_stopping(self, total_val_loss: float) -> bool:
+        self.loss_queue.append(total_val_loss)
+        if len(self.loss_queue) < self.patience: 
+            return False
+
+        if self.loss_queue.pop(0) <= min(self.loss_queue):
+            return True
+        else: 
+            return False
+
+
 
 
 
@@ -274,6 +293,7 @@ class AttnProber:
         self.cfg = cfg
 
         self.rest = rest
+        self.rest.requires_grad_(False)
         self.rest.eval()
         embed_dimension = rest.cfg['encoder']['model_dimension']
         heads = rest.cfg['encoder']['heads']
@@ -428,7 +448,6 @@ class AttnProber:
         
 
     def build_optimizer(self) -> torch.optim.Optimizer: 
-
         optim = torch.optim.AdamW(
             self.probe.parameters() # TODO: param groups (last layer lr)
         )

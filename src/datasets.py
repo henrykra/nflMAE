@@ -66,7 +66,7 @@ class FrameDataset(torch.utils.data.Dataset):
         
         self.data = {}
         position_cols = [col for col in merged_df.columns if col.startswith('position')]
-        self.cols = ['x', 'y', 'ox', 'oy', 'vx', 'vy', 'a', 'offense', 'defense', 'height_z', 'weight_z', 'nflId'] # + position_cols
+        self.cols = ['x', 'y', 'ox', 'oy', 'vx', 'vy', 'a', 'offense', 'defense', 'height_z', 'weight_z', 'isBallCarrier', 'nflId'] # + position_cols
 
         isna = merged_df[self.cols].isna()
         null_columns = isna.columns[isna.any()].tolist()
@@ -83,8 +83,9 @@ class FrameDataset(torch.utils.data.Dataset):
 
         groups = merged_df.groupby(['gameId', 'playId', 'mirrored', 'frameId'], sort=False).indices
         # data (gameId, playid, mirrored, frameid): 23x? array
-        self.data = {key: values[pos, :-1] for key, pos in groups.items()}
+        self.data = {key: values[pos, :-2] for key, pos in groups.items()}
         self.pids = {key: values[pos, -1] for key, pos in groups.items()}
+        self.bc = {key: values[pos, -2] for key, pos in groups.items()}
 
         self.idx = list(self.data.keys())  
         logger.info(f"{len(self.idx)} frames loaded")
@@ -107,7 +108,7 @@ class FrameDataset(torch.utils.data.Dataset):
     
 
     def channels(self): 
-        return len(self.cols) - 1
+        return len(self.cols) - 2
 
 
 class MultiFrameDataset(FrameDataset):
@@ -130,8 +131,10 @@ class MultiFrameDataset(FrameDataset):
             newkey = (*key[:-1], min_frameid)
 
         return {
-            "feat": torch.cat( (torch.from_numpy(self.data[newkey]), torch.from_numpy(self.data[key])), dim=0),
-            "coord": torch.cat( (torch.from_numpy(self.data[newkey][:, :2]), torch.from_numpy(self.data[key][:, :2])), dim=0), 
+            "feat": torch.from_numpy(self.data[key]),
+            "reference_feat": torch.from_numpy(self.data[newkey]),
+            "coord": torch.from_numpy(self.data[key][:, :2]),
+            "reference_coord": torch.from_numpy(self.data[newkey][:, :2]),
             "fids": torch.repeat_interleave(torch.Tensor([newkey[-1], frameid]), repeats=p),
             "pids": torch.cat( (torch.from_numpy(self.pids[newkey]), torch.from_numpy(self.pids[key])), dim=0),
             "weights": torch.Tensor([(frameid - newkey[-1]) / self.frame_dif]).float()
@@ -146,6 +149,7 @@ class TacklePosDataset(FrameDataset):
         """Update framedataset superclass to remove frames from data/idx that don't have a tackle"""
         
         super().__init__(merged_df)
+
         tackle_positions = self._get_tackle_positions(merged_df)
         tackle_positions.sort_index(inplace=True)
 
@@ -176,11 +180,9 @@ class TacklePosDataset(FrameDataset):
         target_values = merged[['x', 'y']].to_numpy(dtype=np.float32)
         bc_locations = merged[['x_bc', 'y_bc']].to_numpy(dtype=np.float32)
         merged['isBallCarrier'] = (merged[['x', 'y']] == merged[['x_bc', 'y_bc']].rename(columns={'x_bc': 'x', 'y_bc': 'y'})).all(axis=1)
-        bc_mask = merged[['isBallCarrier']].to_numpy(dtype=np.float32)
 
         self.target = dict(zip(kept_keys, target_values))
-        self.bc = dict(zip(kept_keys, bc_locations))
-        self.bc_mask = dict(zip(kept_keys, bc_mask))
+        self.bc_loc = dict(zip(kept_keys, bc_locations))
         self.data = {k: self.data[k] for k in kept_keys}
         logger.info(f"deleting {len(self.idx) - len(kept_keys)} frames from plays without tackles")
         self.idx = kept_keys
@@ -198,8 +200,8 @@ class TacklePosDataset(FrameDataset):
             "feat": torch.from_numpy(self.data[key]), # drop nflId
             "coord": torch.from_numpy(self.data[key][:, :2]), # x and y only,
             "target": torch.from_numpy(self.target[key]), 
-            "bc": torch.from_numpy(self.bc[key]), # ball carrier x/y at the given frame
-            "bc_mask": torch.from_numpy(self.bc_mask[key]) # bool is ballcarrier for all players
+            "bc": torch.from_numpy(self.bc_loc[key]), # ball carrier x/y at the given frame
+            "bc_mask": torch.from_numpy(self.bc[key]).bool() # bool is ballcarrier for all players
         }
 
 

@@ -1,5 +1,5 @@
 data:
-  minimal: False
+  minimal: True
   force: False
   bdb_folder: /Users/henrykraessig/code/bdb2024/data/
   data_folder: /Users/henrykraessig/code/route2vec/data/
@@ -18,15 +18,15 @@ train:
   mask_players: True
   grid_size: 10
   mask_ratio: 0.75
-  num_frames: 2
+  reference_frame: True
 
 model:
-  encode_masks: True
+  encode_masks: False
   add_rope: True
 
   encoder: 
     model_dimension: 64
-    hidden_dimension: 128
+    hidden_dimension: 256
     heads: 2
     attn_drop: .3
     proj_drop: .3
@@ -37,7 +37,7 @@ model:
     add_cls_token: True
   decoder: 
     model_dimension: 64
-    hidden_dimension: 128
+    hidden_dimension: 256
     heads: 2
     attn_drop: .3
     proj_drop: .3

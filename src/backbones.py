@@ -59,7 +59,7 @@ class Layer(nn.Module):
 
         self.rel_cls_token = nn.Parameter(torch.Tensor(1), requires_grad=True)
 
-        self.sid_value = nn.Parameter(torch.Tensor(1), requires_grad=True)
+        self.sid_value = nn.Parameter(torch.zeros(self.h), requires_grad=True)
         self.causal = True
 
         # self.rpb_scale = nn.Parameter(torch.Tensor(1), requires_grad=True)
@@ -68,9 +68,9 @@ class Layer(nn.Module):
 
     def forward(self, feat: torch.Tensor, coord, fids, pids):
         B, P, D = feat.shape
-        if coord.shape[1] != feat.shape[1]: 
-
-            coord = torch.cat([self.rel_cls_token[None, None, :].repeat(B, 1, 2), coord], dim=1)
+        if coord is not None and coord.shape[1] != feat.shape[1]: # add "coordinate" for cls token
+            npad = feat.shape[1] - coord.shape[1]
+            coord = torch.cat([self.rel_cls_token[None, None, :].repeat(B, npad, 2), coord], dim=1)
         # feat = B P D
         # coords = B P 2
         qkv = self.qkv_proj(feat) # B P 3D
@@ -79,33 +79,42 @@ class Layer(nn.Module):
         qkv: torch.Tensor = einops.rearrange(qkv, 'B P (x c h) -> x B h P c', x=3, h=self.h, c=self.d // self.h)
         q, k, v = qkv.unbind(dim=0)
 
-        if fids is not None: 
+        if fids is not None:
+            first_frames = fids[:, :1]
+            last_frames = fids[:, -1:] 
+            update_fids = False
             if fids.shape[-1] != feat.shape[1]: 
-                frameid = fids[:, -1:]
-                nfids = torch.cat((frameid, fids), dim=-1)
+                update_fids = True
+                npad = feat.shape[1] - fids.shape[1]
+                fids = torch.cat((last_frames.repeat(1, npad), fids), dim=-1)
 
-            q, k = self.add_rope(q, k, nfids) # TODO: precompute sins/cosines
+            q, k = self.add_rope(q, k, fids) # TODO: precompute sins/cosines
 
 
         # attention
         attn = q @ k.transpose(-2, -1) * self.scale 
 
         # add rpb
-        if self.add_rpb: 
+        if self.add_rpb and coord is not None: 
             attn += self.RPB(self.RPB.get_relative_positions(coord))
 
 
         if pids is not None:
             if pids.shape[1] != feat.shape[1]:
-                pids = torch.cat( (torch.zeros(B, 1, device='mps'), pids), dim=-1)
+                npad = feat.shape[1] - pids.shape[1]
+                pids = torch.cat( (torch.zeros(B, npad, device='mps'), pids), dim=-1)
             sid_map = self.get_sid_mask(pids)
-            attn += sid_map.unsqueeze(1) * self.sid_value
+            # b,p,p,1 x 1,h
+            sid_mask = sid_map.unsqueeze(-1) * self.sid_value.unsqueeze(0) # b, p, p, h
+            attn += torch.transpose(sid_mask, -1, -2).transpose(1, 2)
+
 
         if self.causal and fids is not None: 
-            if fids.shape[-1] != feat.shape[1]:     
-                frameid = fids[:, :1]
-                nfids = torch.cat((frameid, fids), dim=-1)
-            causal_mask = self.get_causal_mask(nfids)
+            if update_fids:     
+                npad = feat.shape[1] - pids.shape[1]
+                fids[:, :npad] = first_frames
+
+            causal_mask = self.get_causal_mask(fids)
             attn += causal_mask.unsqueeze(1)
 
 

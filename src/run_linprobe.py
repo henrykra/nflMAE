@@ -90,17 +90,12 @@ def main(config: dict):
 
     model_path = config["model"]
 
-    rest_model = torch.load(model_path, weights_only=False).requires_grad_(False).to(device)
+    rest_model = torch.load(model_path, weights_only=False).to(device)
     #for parameter in rest_model.parameters(): 
     #    assert parameter.requires_grad == False
 
     train_config = config["train"]
-    if config['probe_type'] == 'linprobe': 
-        trainer = finetune.LinProber(train_config, rest_model, train_set, val_set, test_set)
-    elif config['probe_type'] == 'attn_probe':
-        trainer = finetune.AttnProber(train_config, rest_model, train_set, val_set, test_set)
-
-
+    trainer = finetune.LinProber(train_config, rest_model, train_set, val_set, test_set)
     # add hooks
     train_hooks = [
         hooks.PlotTackle(1), hooks.AddTrainLoss(1), hooks.AddValLoss(1), hooks.EpochPBar(1)
@@ -111,6 +106,7 @@ def main(config: dict):
     print(f'{len(train_set)} training samples')
     trainer.train()
     ade = trainer.test()
+    trainer.writer.add_scalar("ADE/test", ade)
     return 
 
     

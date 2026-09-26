@@ -54,7 +54,7 @@ class PlotFrame(Hook):
                 s=60, edgecolors='black', linewidths=.5, zorder=3,
             )
 
-        x_pred, y_pred = pred[mask.squeeze(), 0], pred[mask.squeeze(), 1]
+        x_pred, y_pred = pred[:, 0], pred[:, 1]
         ax.scatter(
             x_pred, y_pred,
             c="#10ab0e", 
@@ -81,6 +81,7 @@ class PlotFrame(Hook):
         ax.set_xlabel("x")
         ax.set_ylabel("y")
         ax.legend(loc="upper right", fontsize=8)
+        ax.grid(True)
 
         fig.tight_layout()
 
@@ -94,7 +95,7 @@ class PlotFrame(Hook):
     def _to_numpy(t: torch.Tensor) -> np.ndarray:
         return t.detach().cpu().numpy()
 
-
+# fix now that reference frame is separate
 class Plot2Frames(PlotFrame):
     def after_epoch(self, trainer): 
         fig, axes = plt.subplots(figsize=(10, 5), ncols=2, sharex=True, sharey=True)
@@ -134,7 +135,7 @@ class Plot2Frames(PlotFrame):
                     s=60, edgecolors='black', linewidths=.5, zorder=3,
                 )
     
-            x_pred, y_pred = pred[mask.squeeze(), 0], pred[mask.squeeze(), 1]
+            x_pred, y_pred = pred[:, 0], pred[:, 1]
             axes[i].scatter(
                 x_pred, y_pred,
                 c="#10ab0e", 
@@ -400,7 +401,7 @@ class PlotLayerSidVals(Hook):
         self.sid_vals = {}
         def make_block_act_norm_hook(name): 
             def hook(module, input, output): 
-                sid_val= module.attn_layer.sid_value.detach().item()
+                sid_val = module.attn_layer.sid_value.detach().sum()
                 self.sid_vals[name] = sid_val
 
             return hook
