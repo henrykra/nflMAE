@@ -4,18 +4,19 @@ from pathlib import Path
 import sys
 
 # Pretrain
-config_path = Path("/Users/henrykraessig/code/route2vec/config.yaml")
+config_path = Path("/Users/henrykraessig/code/route2vec/configs/pretrain_config.yaml")
+scripts_path = Path("/Users/henrykraessig/code/route2vec/nflMAE/scripts")
 pretrain_config = {
     "data": {
         "minimal": True,
         "force": False,
         "bdb_folder": "/Users/henrykraessig/code/bdb2024/data",
-        "data_folder": "/Users/henrykraessig/code/route2vec/data",
+        "data_folder": "/Users/henrykraessig/code/route2vec/datasets",
         "train": 0.85,
         "val": 0.15,
     },
     "train": {
-        "epochs": 15,
+        "epochs": 1,
         "batch_size": 256,
         "target_folder": "/Users/henrykraessig/code/route2vec/experiments",
         "lr_base": 0.001,
@@ -27,6 +28,7 @@ pretrain_config = {
         "reference_frame": True
     },
     "model": {
+        "encode_masks": True,
         "encoder": {
             "attn_drop": .3,
             "proj_drop": .3,
@@ -45,33 +47,33 @@ pretrain_config = {
     }
 }
 # small
-pretrain_config['model']['encoder']['dimension'] = 32
+pretrain_config['model']['encoder']['model_dimension'] = 32
 pretrain_config['model']['encoder']['hidden_dimension'] = 128
 pretrain_config['model']['encoder']['heads'] = 2
 pretrain_config['model']['encoder']['depth'] = 4
-pretrain_config['model']['decoder']['dimension'] = 32
+pretrain_config['model']['decoder']['model_dimension'] = 32
 pretrain_config['model']['decoder']['hidden_dimension'] = 128
 pretrain_config['model']['decoder']['heads'] = 2
-pretrain_config['folder_name'] = "small"
+pretrain_config['train']['folder_name'] = "small"
 
 
 with config_path.open('w') as configstream:
     yaml.dump(pretrain_config, configstream)
-subprocess.run([sys.executable, "run_pretrain.py"])
+subprocess.run([sys.executable, scripts_path / "run_pretrain.py"])
 
 # large
-pretrain_config['model']['encoder']['dimension'] = 512
+pretrain_config['model']['encoder']['model_dimension'] = 512
 pretrain_config['model']['encoder']['hidden_dimension'] = 2048
 pretrain_config['model']['encoder']['heads'] = 16
 pretrain_config['model']['encoder']['depth'] = 4
-pretrain_config['model']['decoder']['dimension'] = 512
+pretrain_config['model']['decoder']['model_dimension'] = 512
 pretrain_config['model']['decoder']['hidden_dimension'] = 2048
 pretrain_config['model']['decoder']['heads'] = 16
-pretrain_config['folder_name'] = "large"
+pretrain_config['train']['folder_name'] = "large"
 
 with config_path.open('w') as configstream:
     yaml.dump(pretrain_config, configstream)
-subprocess.run([sys.executable, "run_pretrain.py"])
+subprocess.run([sys.executable, scripts_path / "run_pretrain.py"])
 
 
 # 1. Tackle position
@@ -80,7 +82,7 @@ config_dir = Path("/Users/henrykraessig/code/route2vec/configs")
 config_scratch = {
     "data": {
         "bdb_folder": "/Users/henrykraessig/code/bdb2024/data",
-        "data_folder": "/Users/henrykraessig/code/route2vec/data",
+        "data_folder": "/Users/henrykraessig/code/route2vec/datasets",
         "force": True,
         "minimal": True,
         "train": .80,
@@ -91,7 +93,7 @@ config_scratch = {
     "train": {
         "target_folder": "/Users/henrykraessig/code/route2vec/experiments",
         "target_features": 2,
-        "epochs": 25,
+        "epochs": 1,
         "batch_size": 256,
         "lr": 0.0005,
         "use_cls_token": False,
@@ -107,7 +109,7 @@ config_scratch = {
     }
 }
 # a. Train from scratch
-config_path = config_dir / "tackle_prediction_config.yaml"
+config_path = config_dir / "tackle_config.yaml"
 
 # small
 config_scratch['model']['model_dimension'] = 32
@@ -117,7 +119,7 @@ config_scratch['model']['depth'] = 4
 
 with config_path.open('w') as configstream:
     yaml.dump(config_scratch, configstream)
-subprocess.run([sys.executable, "run_tackle.py"])
+subprocess.run([sys.executable, scripts_path / "run_tackle.py"])
 
 # large
 config_scratch['model']['model_dimension'] = 512
@@ -127,59 +129,33 @@ config_scratch['model']['depth'] = 4
 
 with config_path.open('w') as configstream:
     yaml.dump(config_scratch, configstream)
-subprocess.run([sys.executable, "run_tackle.py"])
+subprocess.run([sys.executable, scripts_path / "run_tackle.py"])
 
 
 # b. Finetune
-config_path = config_dir / "tackle_prediction_config.yaml"
+config_path = config_dir / "tackle_config.yaml"
+config_finetune = config_scratch.copy()
 
 # small
-config_scratch['model'] = config_scratch['train']['target_folder'] + "/small/rest.pt"
+config_finetune['model'] = config_scratch['train']['target_folder'] + "/small/nflmae.pt"
 with config_path.open('w') as configstream:
-    yaml.dump(config_scratch, configstream)
-subprocess.run([sys.executable, "run_tackle.py"])
+    yaml.dump(config_finetune, configstream)
+subprocess.run([sys.executable, scripts_path / "run_tackle.py"])
 
 # large
-config_scratch['model'] = config_scratch['train']['target_folder'] + "/large/rest.pt"
+config_finetune['model'] = config_scratch['train']['target_folder'] + "/large/nflmae.pt"
 with config_path.open('w') as configstream:
-    yaml.dump(config_scratch, configstream)
-subprocess.run([sys.executable, "run_tackle.py"])
+    yaml.dump(config_finetune, configstream)
+subprocess.run([sys.executable, scripts_path / "run_tackle.py"])
 
 
 # 2. Route running
 config_path = config_dir / "route_config.yaml"
 
-config_scratch = {
-    "data": {
-        "bdb_folder": "/Users/henrykraessig/code/bdb2025/data",
-        "data_folder": "/Users/henrykraessig/code/route2vec/data",
-        "force": True,
-        "minimal": True,
-        "train": .80,
-        "val": .20,
-        "train_weeks": [1, 2],
-        "test_weeks": [9],
-    },
-    "train": {
-        "target_folder": "/Users/henrykraessig/code/route2vec/experiments",
-        "target_features": 13,
-        "epochs": 25,
-        "batch_size": 256,
-        "lr": 0.0005,
-        "use_cls_token": False,
-        "patience": 2,
-        "trainable": "full",
-    },
-    "model": {
-        "attn_drop": .3,
-        "proj_drop": .3,
-        "ffn_drop": .3,
-        "norm_first": True,
-        "add_cls_token": True,
-    }
-}
 # a. Train from scratch
 config_path = config_dir / "route_config.yaml"
+
+config_scratch['data']['bdb_folder'] = "/Users/henrykraessig/code/bdb2025/data"
 
 # small
 config_scratch['model']['model_dimension'] = 32
@@ -189,7 +165,7 @@ config_scratch['model']['depth'] = 4
 
 with config_path.open('w') as configstream:
     yaml.dump(config_scratch, configstream)
-subprocess.run([sys.executable, "run_route.py"])
+subprocess.run([sys.executable, scripts_path / "run_route.py"])
 
 # large
 config_scratch['model']['model_dimension'] = 512
@@ -199,69 +175,43 @@ config_scratch['model']['depth'] = 4
 
 with config_path.open('w') as configstream:
     yaml.dump(config_scratch, configstream)
-subprocess.run([sys.executable, "run_route.py"])
+subprocess.run([sys.executable, scripts_path / "run_route.py"])
 
 
 # b. Finetune
 config_path = config_dir / "route_config.yaml"
 
 # small
-config_scratch['model'] = config_scratch['train']['target_folder'] + "/small/rest.pt"
+config_finetune = config_scratch.copy()
+config_finetune['model'] = config_scratch['train']['target_folder'] + "/small/nflmae.pt"
 with config_path.open('w') as configstream:
-    yaml.dump(config_scratch, configstream)
-subprocess.run([sys.executable, "run_route.py"])
+    yaml.dump(config_finetune, configstream)
+subprocess.run([sys.executable, scripts_path / "run_route.py"])
 
 # large
-config_scratch['model'] = config_scratch['train']['target_folder'] + "/large/rest.pt"
+config_finetune['model'] = config_scratch['train']['target_folder'] + "/large/nflmae.pt"
 with config_path.open('w') as configstream:
-    yaml.dump(config_scratch, configstream)
-subprocess.run([sys.executable, "run_route.py"])
+    yaml.dump(config_finetune, configstream)
+subprocess.run([sys.executable, scripts_path / "run_route.py"])
 
 
 # 3. Man v zone
 config_path = config_dir / "manzone_config.yaml"
 
-config_scratch = {
-    "data": {
-        "bdb_folder": "/Users/henrykraessig/code/bdb2025/data",
-        "data_folder": "/Users/henrykraessig/code/route2vec/data",
-        "force": True,
-        "minimal": True,
-        "train": .80,
-        "val": .20,
-        "train_weeks": [1, 2],
-        "test_weeks": [9],
-    },
-    "train": {
-        "target_folder": "/Users/henrykraessig/code/route2vec/experiments",
-        "target_features": 3,
-        "epochs": 25,
-        "batch_size": 256,
-        "lr": 0.0005,
-        "use_cls_token": True,
-        "patience": 2,
-        "trainable": "full",
-    },
-    "model": {
-        "attn_drop": .3,
-        "proj_drop": .3,
-        "ffn_drop": .3,
-        "norm_first": True,
-        "add_cls_token": True,
-    }
-}
 # a. Train from scratch
 config_path = config_dir / "manzone_config.yaml"
+config_scratch['data']['bdb_folder'] = "/Users/henrykraessig/code/bdb2025/data"
 
 # small
 config_scratch['model']['model_dimension'] = 32
 config_scratch['model']['hidden_dimension'] = 128
 config_scratch['model']['heads'] = 2
 config_scratch['model']['depth'] = 4
+config_scratch['train']['use_cls_token'] = True
 
 with config_path.open('w') as configstream:
     yaml.dump(config_scratch, configstream)
-subprocess.run([sys.executable, "run_manzone.py"])
+subprocess.run([sys.executable, scripts_path / "run_manzone.py"])
 
 # large
 config_scratch['model']['model_dimension'] = 512
@@ -271,20 +221,21 @@ config_scratch['model']['depth'] = 4
 
 with config_path.open('w') as configstream:
     yaml.dump(config_scratch, configstream)
-subprocess.run([sys.executable, "run_manzone.py"])
+subprocess.run([sys.executable, scripts_path / "run_manzone.py"])
 
 
 # b. Finetune
 config_path = config_dir / "manzone_config.yaml"
 
+config_finetune = config_scratch.copy()
 # small
-config_scratch['model'] = config_scratch['train']['target_folder'] + "/small/rest.pt"
+config_finetune['model'] = config_scratch['train']['target_folder'] + "/small/nflmae.pt"
 with config_path.open('w') as configstream:
-    yaml.dump(config_scratch, configstream)
-subprocess.run([sys.executable, "run_manzone.py"])
+    yaml.dump(config_finetune, configstream)
+subprocess.run([sys.executable, scripts_path / "run_manzone.py"])
 
 # large
-config_scratch['model'] = config_scratch['train']['target_folder'] + "/large/rest.pt"
+config_finetune['model'] = config_scratch['train']['target_folder'] + "/large/nflmae.pt"
 with config_path.open('w') as configstream:
-    yaml.dump(config_scratch, configstream)
-subprocess.run([sys.executable, "run_manzone.py"])
+    yaml.dump(config_finetune, configstream)
+subprocess.run([sys.executable, scripts_path / "run_manzone.py"])

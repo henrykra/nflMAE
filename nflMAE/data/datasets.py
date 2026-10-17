@@ -277,7 +277,7 @@ class TacklePosDataset(FrameDataset):
     @staticmethod
     def eval_statistic(pred: torch.Tensor, minibatch: dict[torch.Tensor]):
         target = minibatch['target'].detach().cpu()
-        de = (((target - pred) ** 2).sum(axis=1) ** .5)
+        de = (((target - pred.detach().cpu()) ** 2).sum(axis=1) ** .5)
         return de
 
 

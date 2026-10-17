@@ -17,10 +17,10 @@ def make_experiment_folder(train_config: dict, folder_name: str=None):
     # save train run in experiment subfolder
     if folder_name is None:
         now = datetime.now().strftime("%m-%d-%y--%H:%M:%S")
-        experiment_folder = Path(train_config['target_folder']) / ("experiment" + now)
+        experiment_folder = Path(train_config['target_folder'], ("pretrain" + now))
     else: 
-        experiment_folder = Path(train_config['target_folder'] / folder_name)
-    Path.mkdir(experiment_folder)
+        experiment_folder = Path(train_config['target_folder'], folder_name)
+    Path.mkdir(experiment_folder, exist_ok=True)
     return experiment_folder
 
 

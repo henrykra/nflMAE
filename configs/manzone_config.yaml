@@ -1,34 +1,22 @@
-data: 
+data:
   bdb_folder: /Users/henrykraessig/code/bdb2025/data
-  data_folder: /Users/henrykraessig/code/route2vec/data
-  force: True
-  minimal: False
-  train: .80
-  val: .20
-  train_weeks: 
-    - 1
-    - 2
-  test_weeks: 
-    - 9
-
-train: 
-  target_folder: /Users/henrykraessig/code/route2vec/experiments
-  target_features: 3  # Man / Zone / Other
-  epochs: 25
+  data_folder: /Users/henrykraessig/code/route2vec/datasets
+  force: true
+  minimal: true
+  test_weeks:
+  - 9
+  train: 0.8
+  train_weeks:
+  - 1
+  - 2
+  val: 0.2
+model: /Users/henrykraessig/code/route2vec/experiments/large/nflmae.pt
+train:
   batch_size: 256
-  lr: 0.001
-  use_cls_token: True
-  patience: 3
-
-
-model: # /Users/henrykraessig/code/route2vec/rest.pt
-  model_dimension: 32
-  hidden_dimension: 128
-  heads: 2
-  depth: 4
-  attn_drop: .3
-  proj_drop: .3
-  ffn_drop: .3
-  add_rpb: False
-  norm_first: True
-  add_cls_token: True
+  epochs: 1
+  lr: 0.0005
+  patience: 2
+  target_features: 2
+  target_folder: /Users/henrykraessig/code/route2vec/experiments
+  trainable: full
+  use_cls_token: true

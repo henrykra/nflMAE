@@ -451,7 +451,7 @@ class LogHParams(Hook):
 class SaveModel(Hook): 
 
     def after_train(self, trainer):
-        torch.save(trainer.model, trainer.experiment_folder / "rest.pt")
+        torch.save(trainer.model, trainer.experiment_folder / "nflmae.pt")
 
 
 class PrintStat(Hook):

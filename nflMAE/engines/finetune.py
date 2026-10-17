@@ -17,9 +17,9 @@ def make_experiment_folder(train_config: dict, folder_name: str=None):
     # save train run in experiment subfolder
     if folder_name is None:
         now = datetime.now().strftime("%m-%d-%y--%H:%M:%S")
-        experiment_folder = Path(train_config['target_folder']) / ("finetune" + now)
+        experiment_folder = Path(train_config['target_folder'], ("finetune" + now))
     else: 
-        experiment_folder = Path(train_config['target_folder'] / folder_name)
+        experiment_folder = Path(train_config['target_folder'], folder_name)
     Path.mkdir(experiment_folder)
     return experiment_folder
 
@@ -36,7 +36,7 @@ class Finetuner:
     def __init__(
         self,
         cfg: dict,
-        backbone: models.REST,
+        backbone: models.NflMaeModel,
         probe: torch.nn.Module,
         train_dataset,
         val_dataset,
@@ -119,7 +119,7 @@ class Finetuner:
             self.optim.zero_grad()
             # get embedding from cls token as linear probing input
             minibatch = dict_to_device(minibatch)
-            probe_in = self.model.encode(minibatch, self.cfg['use_cls_token'], token_mask=None)
+            probe_in = self.model.encode(minibatch, self.cfg['use_cls_token'], token_mask=minibatch.get('target_mask'))
             pred = self.probe(probe_in)
 
             # calculate loss
@@ -147,7 +147,7 @@ class Finetuner:
             for step, val_minibatch in enumerate(self.val_dataloader):
                 self.run_hooks("before_val_step")
                 val_minibatch = dict_to_device(val_minibatch)
-                probe_in = self.model.encode(val_minibatch, cls_only=self.cfg['use_cls_token'], token_mask=None)
+                probe_in = self.model.encode(val_minibatch, cls_only=self.cfg['use_cls_token'], token_mask=val_minibatch.get('target_mask'))
                 pred = self.probe(probe_in)
 
                 # calculate loss
@@ -178,7 +178,7 @@ class Finetuner:
         with torch.no_grad(): 
             for step, test_minibatch in enumerate(self.test_dataloader): 
                 test_minibatch = dict_to_device(test_minibatch)
-                probe_in = self.model.encode(test_minibatch, self.cfg['use_cls_token'], token_mask=None)
+                probe_in = self.model.encode(test_minibatch, self.cfg['use_cls_token'], token_mask=test_minibatch.get('target_mask'))
                 pred = self.probe(probe_in)
 
                 stat = self.calculate_eval_statistic(pred.detach().cpu(), test_minibatch)

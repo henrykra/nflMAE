@@ -10,6 +10,7 @@ import time
 from scipy.interpolate import CubicSpline
 
 from nflMAE.data import bdb_common
+from nflMAE import root
 
 logger = logging.getLogger(__name__)
 
@@ -289,7 +290,7 @@ def run_data_pipeline(data_folder: Path, out_folder: Path, minimal: bool=False, 
             continue
 
         if minimal:
-            tracking = bdb_common.load_csv_data([Path("../2025_minimal_tracking.csv")])[0]
+            tracking = bdb_common.load_csv_data([Path(root.parent, "2025_minimal_tracking.csv")])[0]
         else: 
             tracking = bdb_common.load_tracking_data(weeks=week, folder=data_folder)
 

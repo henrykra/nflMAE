@@ -1,51 +1,41 @@
 data:
-  minimal: True
-  force: False
-  bdb_folder: /Users/henrykraessig/code/bdb2025/data/
-  data_folder: /Users/henrykraessig/code/route2vec/data/
+  bdb_folder: /Users/henrykraessig/code/bdb2024/data
+  data_folder: /Users/henrykraessig/code/route2vec/datasets
+  force: false
+  minimal: true
   train: 0.85
   val: 0.15
-
-train:
-  epochs: 50
-  batch_size: 256
-  target_folder: /Users/henrykraessig/code/route2vec/experiments/
-  lr_base: 0.001
-  lr_final: 0.00005
-  lr_warmup: 1000
-
-  mask_regions: False
-  mask_players: True
-  grid_size: 10
-  mask_ratio: 0.75
-  reference_frame: True
-
-  folder_name:
-  
-
 model:
-  encode_masks: True
-  add_rope: True
-
-  encoder: 
-    model_dimension: 32
-    hidden_dimension: 128
-    heads: 2
-    attn_drop: .3
-    proj_drop: .3
-    ffn_drop: .3
-    depth: 4
-    add_rpb: False
-    norm_first: True
-    add_cls_token: True
-  decoder: 
-    model_dimension: 32
-    hidden_dimension: 128
-    heads: 4
-    attn_drop: .3
-    proj_drop: .3
-    ffn_drop: .3
+  decoder:
+    add_cls_token: false
+    attn_drop: 0.3
     depth: 1
-    add_rpb: False
-    norm_first: True
-    add_cls_token: False
+    ffn_drop: 0.3
+    heads: 16
+    hidden_dimension: 2048
+    model_dimension: 512
+    norm_first: true
+    proj_drop: 0.3
+  encode_masks: true
+  encoder:
+    add_cls_token: true
+    attn_drop: 0.3
+    depth: 4
+    ffn_drop: 0.3
+    heads: 16
+    hidden_dimension: 2048
+    model_dimension: 512
+    norm_first: true
+    proj_drop: 0.3
+train:
+  batch_size: 256
+  epochs: 1
+  folder_name: large
+  grid_size: 10
+  lr_base: 0.001
+  lr_final: 5.0e-05
+  lr_warmup: 1000
+  mask_players: true
+  mask_ratio: 0.75
+  reference_frame: true
+  target_folder: /Users/henrykraessig/code/route2vec/experiments

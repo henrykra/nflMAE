@@ -8,6 +8,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from nflMAE.data import bdb_common
+from nflMAE import root
 
 MIN_WEEK = 1
 MAX_WEEK = 9
@@ -142,7 +143,7 @@ def run_data_pipeline(data_folder: Path, out_folder: Path, minimal: bool=False, 
             continue
 
         if minimal:
-            tracking = bdb_common.load_csv_data([Path("../2024_minimal_tracking.csv")])[0]
+            tracking = bdb_common.load_csv_data([Path(root.parent, "2024_minimal_tracking.csv")])[0]
         else: 
             tracking = bdb_common.load_tracking_data(weeks=week, folder=data_folder)
 
