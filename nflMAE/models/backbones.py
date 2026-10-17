@@ -4,28 +4,6 @@ import einops
 import datasets
 from functools import partial
 
-# Notes
-# implement the zoo architecture and sportstrackingtransformer, use the same test task
-# compare the data preparation from the sportstrackigntrasnformer paper
-
-# explore forcing hierarchy later
-# - block attention
-# - slot attention for transition down layers
-
-# explore alternatives for embedding 
-#   linear, mlp, kpconv
-
-# compare versions of rpe (crpe (Stratified Transformer for 3D Point Cloud Segmentation)
-
-# try path dropout
-
-
-
-# B - batch dimension
-# P - player dimension
-# D - model feature dimension
-# H - heads
-
 
 class Layer(nn.Module):
 
@@ -64,7 +42,6 @@ class Layer(nn.Module):
 
         # self.rpb_scale = nn.Parameter(torch.Tensor(1), requires_grad=True)
 
-        
 
     def forward(self, feat: torch.Tensor, coord, fids, pids):
         B, P, D = feat.shape
@@ -160,10 +137,6 @@ class Layer(nn.Module):
         causal_mask = torch.where(causal_mask, -torch.inf, 0)
 
         return causal_mask
-
-
-
-
 
 
 def rotate_half(u: torch.Tensor): 
@@ -305,7 +278,6 @@ class MyModel(nn.Module):
             for _ in range(depth)
         ])
 
-
         self.final_norm = nn.LayerNorm(model_dimension)
         self.norm_first = norm_first
         self.add_cls_token = add_cls_token
@@ -332,112 +304,59 @@ class MyModel(nn.Module):
 
 
 
-
-
-
-
-from typing import Any
-
-import torch
-from torch import Tensor, nn, squeeze
-from torch.optim import AdamW
-
-
-class SportsTransformer(nn.Module):
-    """
-    Transformer model that treats all 22 players as a sequence for tackle prediction.
-    """
-
+class AttnPoolingLayer(nn.Module): 
+    """Attend to one learnable query vector"""
     def __init__(
         self,
-        feature_len: int,
-        model_dim: int = 32,
-        num_layers: int = 2,
-        dropout: float = 0.3,
-    ):
-        """
-        Initialize the SportsTransformer.
-
-        Args:
-            feature_len (int): Number of input features per player.
-            model_dim (int): Dimension of the model's internal representations.
-            num_layers (int): Number of transformer encoder layers.
-            dropout (float): Dropout rate for regularization.
-        """
+        model_dimension: int,
+        heads: int,
+        dropout: float=.3
+    ): 
         super().__init__()
-        dim_feedforward = model_dim * 4
-        num_heads = min(16, max(2, 2 * round(model_dim / 64)))  # attention is better optimized for even number of heads
+        self.d = model_dimension
+        self.h = heads
 
-        self.hyperparams = {
-            "model_dim": model_dim,
-            "num_layers": num_layers,
-            "num_heads": num_heads,
-            "dim_feedforward": dim_feedforward,
-        }
+        self.kv_proj = nn.Linear(self.d, 2 * self.d)
+        self.q = nn.Linear(1, self.d)
+        self.v_proj = nn.Linear(self.d, self.d)
 
-        # Normalize input features
-        self.feature_norm_layer = nn.BatchNorm1d(feature_len)
+        self.scale = (self.d // self.h) ** -.5
+        self.softmax = nn.Softmax(dim=-1)
 
-        # Embed input features to model dimension
-        self.feature_embedding_layer = nn.Sequential(
-            nn.Linear(feature_len, model_dim),
-            nn.ReLU(),
-            nn.LayerNorm(model_dim),
-            nn.Dropout(dropout),
-        )
+        self.out_proj = nn.Linear(self.d, self.d)
+        self.proj_dropout = nn.Dropout(dropout)
 
 
-        self.transformer_encoder = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(
-                d_model=model_dim,
-                nhead=num_heads,
-                dim_feedforward=dim_feedforward,
-                dropout=dropout,
-                batch_first=True,
-            ),
-            num_layers=num_layers,
-        )
+    def forward(self, feat: torch.Tensor): 
+        B, P, D = feat.shape
 
-        self.player_pooling_layer = nn.AdaptiveAvgPool1d(1)
+        q = self.q(torch.ones(B, 1, 1).to('mps')).view(B, self.h, 1, self.d//self.h)
+        
+
+        kv = self.kv_proj(feat) # B, P, 2D
+        kv = einops.rearrange(kv, "B P (x c h) -> x B h P c", x=2, c=self.d//self.h, h=self.h)
+        k, v = torch.unbind(kv, dim=0)
+
+        attn = q @ k.transpose(-2, -1) * self.scale
 
 
-        self.decoder = nn.Sequential(
-            nn.Linear(model_dim, model_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(model_dim, model_dim // 4),
-            nn.ReLU(),
-            nn.LayerNorm(model_dim // 4),
-            nn.Linear(model_dim // 4, 2),
-        )
+        feat = self.softmax(attn) @ v
 
-    def forward(self, frame) -> Tensor:
-        """
-        Forward pass of the SportsTransformer.
+        feat = einops.rearrange(feat, 'B H p C -> B (p H C)', p=1)
 
-        Args:
-            x (Tensor): Input tensor of shape [batch_size, num_players, feature_len].
+        feat = self.proj_dropout(self.out_proj(feat))
 
-        Returns:
-            Tensor: Predicted tackle location of shape [batch_size, 2].
-        """
-        # x: [B: batch_size, P: # of players, F: feature_len]
-        x = frame.feat
-        B, P, F = x.size()
+        return feat
 
-        # Normalize features
-        x = self.feature_norm_layer(x.permute(0, 2, 1)).permute(0, 2, 1)  # [B,P,F] -> [B,P,F]
 
-        # Embed features
-        x = self.feature_embedding_layer(x)  # [B,P,F] -> [B,P,M: model_dim]
+class MaxPoolingLayer(nn.Module):
+    def __init__(self, d: int): 
+        super().__init__()
 
-        # Apply transformer encoder
-        x = self.transformer_encoder(x)  # [B,P,M] -> [B,P,M]
+        self.pooling = nn.AdaptiveMaxPool1d(1)
+    
+    def forward(self, feat: torch.Tensor):
+        feat = self.pooling(feat.transpose(-2, -1))
 
-        # Pool over player dimension
-        x = squeeze(self.player_pooling_layer(x.permute(0, 2, 1)), -1)  # [B,M,P] -> [B,M]
+        return torch.squeeze(feat, -1)
 
-        # Decode to predict tackle location
-        x = self.decoder(x)  # [B,M] -> [B,2]
-
-        return x

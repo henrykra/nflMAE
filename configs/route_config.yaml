@@ -1,0 +1,34 @@
+data: 
+  bdb_folder: /Users/henrykraessig/code/bdb2025/data
+  data_folder: /Users/henrykraessig/code/route2vec/data
+  force: True
+  minimal: False
+  train: .80
+  val: .20
+  train_weeks: 
+    - 1
+    - 2
+  test_weeks: 
+    - 9
+
+train: 
+  target_folder: /Users/henrykraessig/code/route2vec/experiments
+  target_features: 2
+  epochs: 25
+  batch_size: 256
+  lr: 0.001
+  use_cls_token: False
+  patience: 3
+
+
+model: /Users/henrykraessig/code/route2vec/rest.pt
+  # model_dimension: 32
+  # hidden_dimension: 128
+  # heads: 2
+  # depth: 4
+  # attn_drop: .3
+  # proj_drop: .3
+  # ffn_drop: .3
+  # add_rpb: False
+  # norm_first: True
+  # add_cls_token: True

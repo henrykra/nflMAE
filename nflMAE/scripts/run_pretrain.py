@@ -6,58 +6,61 @@ import sys
 import time
 import yaml
 
-import bdb2025
-import bdb2024 
-import datasets 
-import models 
-import utils 
-import train 
-import hooks 
+from nflMAE.data import bdb2025, datasets
+from nflMAE.models import models
+from nflMAE.engines import train
+from nflMAE.utils import hooks
+from nflMAE import root
 
 logger = logging.getLogger(__name__)
-device = torch.device('mps')
-
+device = torch.device("mps")
 
 def parse_config():
-    with open("../config.yaml", "r") as configfile:
+    with Path(root.parent, "configs", "pretrain_config.yaml").open("r") as configfile:
         config = yaml.safe_load(configfile)
-        print(config)
+        logger.info(config)
     return config
 
 
 def main(config: dict): 
     # load bdb data
-    data_config = config["data"]
-    data_path = Path(
-        data_config['data_folder']) / ("bdb2024" + ("_minimal.parquet" if data_config["minimal"] else ".parquet")
+    data_config = config['data']
+
+    bdb_2025_folder = Path("/Users/henrykraessig/code/bdb2025/data/")
+    
+    data_path_2025 = Path(
+        data_config['data_folder']) / ("bdb2025" + ("_minimal.parquet" if data_config["minimal"] else ".parquet")
     )
-    if data_config['force'] or not data_path.exists(): # TODO: with caching
+
+    if data_config['force'] or not data_path_2025.exists(): # TODO: with caching
         t1 = time.time()
-        bdb2024.run_data_pipeline(
-            Path(data_config['bdb_folder']), 
-            Path(data_config['data_folder']), 
+        bdb2025.run_data_pipeline(
+            bdb_2025_folder,
+            Path(data_config['data_folder']),
             minimal=data_config['minimal']
         )
-        logger.info(f"Data pipeline completed in {time.time() - t1:.0f} seconds")
-   
+        logger.info(f"BDB 2025 Data pipeline completed in {time.time() - t1:.0f} seconds")
+
     # set index so that the train/test split keeps frames together
     # run dataset pipeline (task)
-    logger.info(f"reading dataframe from {data_path}")
-    df = pd.read_parquet(data_path).set_index(['gameId', 'playId'])
+    logger.info(f"reading dataframe from {data_path_2025}")
+    df_2025 = pd.read_parquet(data_path_2025).set_index(['gameId', 'playId'])
+
+    df = df_2025
     
     train_idx, val_idx = datasets.train_val_split_df(
         df, 
         data_config['train'], data_config['val']
     )
 
-    train_set_path = Path(data_config["data_folder"], "train.pt")
-    val_set_path = Path(data_config["data_folder"], "val.pt")
+    train_set_path = Path(data_config['data_folder'], "train.pt")
+    val_set_path = Path(data_config['data_folder'], "val.pt")
 
     if data_config['force'] or data_config['minimal'] or not (train_set_path.exists() and val_set_path.exists()): 
         train_set = datasets.MultiFrameDataset(df.loc[train_idx].copy())
         val_set = datasets.MultiFrameDataset(df.loc[val_idx].copy())
 
-        if not data_config["minimal"]: 
+        if not data_config['minimal']: 
             torch.save(train_set, train_set_path)
             torch.save(val_set, val_set_path)
     else: 
@@ -65,13 +68,12 @@ def main(config: dict):
         val_set = torch.load(val_set_path, weights_only=False)
         logger.info(f"Reading torch datasets from {data_config['data_folder']}")
 
+    model_config = config['model']
 
-    model_config = config["model"]
+    model = models.NflMaeModel(model_config, train_set.channels()).to(device)
 
-    model = models.REST(model_config, train_set.channels()).to(device)
-
-    train_config = config["train"]
-    trainer = train.MAETrainer(train_config, model, train_set, val_set)
+    train_config = config['train']
+    trainer = train.MAETrainer(train_config, model, train_set, val_set, folder_name=train_config['folder_name'])
     # add hooks
     train_hooks = [
         hooks.PlotFrame(1), hooks.AddTrainLoss(1), hooks.AddValLoss(1),
@@ -80,8 +82,8 @@ def main(config: dict):
     ]
     trainer.register_hooks(train_hooks)
 
-    print(f'Training model for {train_config["epochs"]} epochs')
-    print(f'{len(train_set)} training samples')
+    logger.info(f"Training model for {train_config['epochs']} epochs")
+    logger.info(f"{len(train_set)} training samples")
     trainer.train()
 
     return 
@@ -90,9 +92,9 @@ def main(config: dict):
 
 if __name__ == "__main__":  
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-    logging.getLogger('utils').setLevel(logging.DEBUG)
+    logging.getLogger("utils").setLevel(logging.DEBUG)
 
     config = parse_config()
 
     main(config)
-    print('done')
+    print("done")

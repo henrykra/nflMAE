@@ -1,15 +1,16 @@
 refs/
-*/data/*
-data/*
+datasets/*
 models/*
 runs/*
 __pycache__/
+*.egg-info/
 
 data_pipeline.ipynb
 scratch.ipynb
 *.pyc
 .DS_Store
 todolist.txt
+future_work.txt
 */experiments/*
 experiments/*
 minimal_tracking.csv

@@ -1,11 +1,9 @@
-"""Common functions for loading and preparing Big Data Bowl data for modeling."""
-from typing import Optional
-from pathlib import Path
 import pandas as pd
-import numpy as np
-import time
-import sys
 import logging
+from pathlib import Path
+import numpy as np
+from typing import Optional
+
 logger = logging.getLogger(__name__)
 
 MIN_WEEK = 1
@@ -36,12 +34,12 @@ def load_tracking_data(
         assert isinstance(week, int) and week >= MIN_WEEK and week <= MAX_WEEK, \
         f"provide integer weeks between {MIN_WEEK} and {MAX_WEEK}"
 
-    print(f"reading data from weeks: {weeks}")
+    logger.info(f"reading data from weeks: {weeks}")
 
     # load data from a folderectory
     if folder and folder.exists():
         logger.info(f"reading tracking from {folder}")
-        paths = [Path(folder, f'tracking_week_{n}.csv') for n in weeks]
+        paths = [Path(folder, f"tracking_week_{n}.csv") for n in weeks]
 
         dfs = load_csv_data(paths)
         return pd.concat(dfs)
@@ -55,24 +53,21 @@ def load_player_data(
 
     if folder and folder.exists():
         logger.info(f"reading player data from {folder}")
-        path = Path(folder, 'players.csv')
+        path = Path(folder, "players.csv")
 
         return pd.read_csv(path)
-    
+
 
 def load_play_data(
         folder: Optional[Path]=None,
 ) -> pd.DataFrame:
-    
 
     if folder and folder.exists():
         logger.info(f"reading play data from {folder}")
-        path = Path(folder, 'plays.csv')
+        path = Path(folder, "plays.csv")
 
     return pd.read_csv(path)
 
-
-### SIMPLE CLEANING
 
 def clean_tracking_angles(tracking_df: pd.DataFrame) -> pd.DataFrame: 
     logger.info("cleaning tracking data angles")
@@ -82,14 +77,16 @@ def clean_tracking_angles(tracking_df: pd.DataFrame) -> pd.DataFrame:
 
     return tracking_df
 
+
+### SIMPLE CLEANING
 def standardize_tracking_plays(tracking_df: pd.DataFrame, play_df: pd.DataFrame) -> pd.DataFrame: 
     logger.info("standardizing tracking data")
     # standardize locations to the ball snap location
     ball = (
         tracking_df
         .loc[
-            (tracking_df['event'] == 'ball_snap') & 
-            (tracking_df['club'] == 'football'),
+            (tracking_df['event'] == "ball_snap") & 
+            (tracking_df['club'] == "football"),
             
             ['gameId', 'playId', 'frameId', 'x', 'y']
         ]
@@ -127,7 +124,7 @@ def standardize_tracking_plays(tracking_df: pd.DataFrame, play_df: pd.DataFrame)
 
     tracking_df['nflId'] = tracking_df['nflId'].fillna(-1) # football
 
-    play_cols = [col for col in play_df.columns if not col.endswith('Id') or col == "ballCarrierId"]
+    play_cols = [col for col in play_df.columns if not col.endswith("Id") or col == "ballCarrierId"]
 
     return tracking_df.drop(columns=play_cols)
 
@@ -148,55 +145,14 @@ def clean_player_data(player_df: pd.DataFrame) -> pd.DataFrame:
 
 
 ### FILTERING
-
 def filter_play_start_frames(tracking_df: pd.DataFrame) -> pd.DataFrame:
     # standardize frameId to 0 at snap & remove presnap frames
-    tracking_df['frameId'] = tracking_df['frameId'] - tracking_df['frameId_ball_snap'].fillna(1)
+    logger.info("filtering plays before ball snap")
+    tracking_df['frameId'] = tracking_df['frameId'] - tracking_df['frameId_ball_snap']
     return tracking_df.loc[tracking_df['frameId'] >=  0]
 
 
-def filter_play_end_frames(tracking_df: pd.DataFrame) -> pd.DataFrame: 
-    # find play end events
-    end = (tracking_df.groupby(['playId', 'gameId'])['frameId'].max() - 4).reset_index().set_index(['playId', 'gameId', 'frameId'])
-    events = tracking_df.groupby(['playId', 'gameId', 'frameId'])['event'].first()
-    end_events = events.loc[end.index].dropna().unique()
-    print(end_events)
-
-    #print plays with tackles
-
-    # create a stop point variable to track frames after the play
-    tracking_df['stop_point'] = pd.NA
-    tracking_df.loc[tracking_df['event'].isin(end_events), 'stop_point'] = True 
-    # fill stopping points forward to filter out moments after a defined route stop
-    tracking_df['stop_point'] = tracking_df.groupby(['gameId', 'playId', 'nflId'])['stop_point'].ffill()
-
-    # filter only after the event
-    tracking_df.loc[tracking_df['event'].isin(end_events), 'stop_point'] = None
-
-
-    return tracking_df.loc[tracking_df['stop_point'].isna()].drop(columns='stop_point') # remove redundant column
-
-
-def filter_route_end_frames(tracking_df: pd.DataFrame) -> pd.DataFrame: 
-    # potentially complex logic to find when a route runner's designed route has ended
-    ...
-
-def filter_early_frames(tracking_df: pd.DataFrame) -> pd.DataFrame:
-    # filter tracking frames within a margin from the earliest frame in the play
-    n = 15
-    logger.info(f"filtering relative frames < {n}")
-    tracking_df['relative_frame'] = tracking_df['frameId'] - tracking_df.groupby(['gameId', 'playId'])['frameId'].transform('min')
-
-    tracking_df = tracking_df.loc[tracking_df['relative_frame'] >= n]
-    return tracking_df
-
-
-def filter_football_tracking_frames(tracking_df: pd.DataFrame) -> pd.DataFrame: 
-    return tracking_df.loc[tracking_df['club'] != 'football']
-
-
 def filter_outlier_plays(tracking_df: pd.DataFrame, player_play_df: pd.DataFrame): 
-
     # filter out the one play from player plays that doesn't have 22 players
     n_players = player_play_df.groupby(['gameId', 'playId']).transform('size')
     bad_ids = player_play_df.loc[n_players != 22].set_index(['gameId', 'playId']).index.unique()
@@ -211,6 +167,8 @@ def filter_outlier_plays(tracking_df: pd.DataFrame, player_play_df: pd.DataFrame
 
 
 def filter_outlier_frames(tracking_df: pd.DataFrame) -> pd.DataFrame: 
+    # filter frames that don't have 23 players
+    logger.info("filtering frames w/o all players tracked")
     good_frame = tracking_df.groupby(['gameId', 'playId', 'frameId'])['nflId'].nunique() == 23
 
     good_frame_ids = good_frame.loc[good_frame]
@@ -263,29 +221,6 @@ def find_player_play_invariant_columns(player_play_df: pd.DataFrame, tracking_df
     return player_play_df, tracking_df.drop(columns=invariant_columns)
 
 
-def clean_player_play_data(player_play_df: pd.DataFrame, play_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]: 
-
-    # player_play_df['is_ball'] = (player_play_df['club'] == 'football') # no football frames in the player_play dataset
-
-    merged = player_play_df[['gameId', 'playId', 'club']].merge(play_df[['gameId', 'playId', 'possessionTeam', 'defensiveTeam']].copy(), how='left', on=('gameId', 'playId'))
-
-    player_play_df['offense'] = (merged['club'] == merged['possessionTeam']).astype('float32')
-    player_play_df['defense'] = (merged['club'] == merged['defensiveTeam']).astype('float32')
-
-    logger.debug(f"{player_play_df['offense'].isna().sum()} NA \'offense\' values")
-
-    # create is_ballcarrier (bool) in player_play
-    play_df['isBallCarrier'] = 1
-    player_play_df = player_play_df.merge(
-        play_df[['gameId', 'playId', 'ballCarrierId', 'isBallCarrier']],
-        how='left',
-        left_on=('gameId', 'playId', 'nflId'),
-        right_on=('gameId', 'playId', 'ballCarrierId')
-    )
-    player_play_df['isBallCarrier'] = player_play_df['isBallCarrier'].fillna(0)
-
-    return player_play_df, play_df
-
 ### MIRROR
 def mirror_tracking_data(tracking_df: pd.DataFrame, player_play_df: pd.DataFrame, play_df: pd.DataFrame) -> pd.DataFrame:
     logger.info("mirroring tracking data")
@@ -310,127 +245,3 @@ def mirror_tracking_data(tracking_df: pd.DataFrame, player_play_df: pd.DataFrame
 
 
     return pd.concat([tracking_df, mirrored_tracking]), pd.concat([player_play_df, mirrored_starts]), pd.concat([play_df, mirrored_snaps])
-
-
-### MERGE
-
-
-def merge_dataframes(
-    tracking_df: pd.DataFrame,
-    player_play_df: pd.DataFrame,
-    play_df: pd.DataFrame,
-    player_df: pd.DataFrame,
-): 
-    tracking_cols = ['gameId', 'playId', 'nflId', 'frameId', 'mirrored', 'x', 'y', 'ox', 'oy', 'vx', 'vy', 'a', 'event']
-    tracking_df = tracking_df[tracking_cols].copy()
-
-    player_play_cols = ['gameId', 'playId', 'nflId', 'mirrored', 'offense', 'defense', 'isBallCarrier']
-    player_play_df = player_play_df[player_play_cols].copy()
-
-    player_cols = ['nflId', 'height_z', 'weight_z', 'position']
-    player_df = player_df[player_cols].copy()
-
-    merged = (
-        tracking_df
-        .merge(
-            right=player_play_df, 
-            how='left',
-            on=['gameId', 'playId', 'nflId', 'mirrored']
-        )
-        .merge(
-            right=player_df,
-            how='left',
-            on=['nflId']
-        )
-    )
-
-    merged = pd.get_dummies(merged, columns=['position'])
-
-    logger.debug(f"merged_df columns: {merged.columns}")
-
-
-    logger.debug(f"{len(merged.loc[merged['offense'].isna(), 'nflId'].unique())} NA \'offense\' values")
-
-    return merged
-
-
-
-def run_data_pipeline(data_folder: Path, out_folder: Path, minimal: bool=False, weeks: list[int]| None=None, df_name: str | None=None):
-    logger.info("Running data pipeline")
-    logger.info(f"{data_folder}, minimal={minimal}")
-    logger.info(f"saving to {out_folder}")
-
-    merged_dfs = []
-    if weeks: 
-        week_iter = weeks
-    else: 
-        week_iter = range(MIN_WEEK, MAX_WEEK + 1)
-
-
-    for week in week_iter: 
-        if week < MIN_WEEK or week > MAX_WEEK: 
-            logger.error(f"invalid week {week}, skipping")
-            continue
-
-        if minimal:
-            tracking = load_csv_data([Path("../2024_minimal_tracking.csv")])[0]
-        else: 
-            tracking = load_tracking_data(weeks=week, folder=data_folder)
-
-        players = load_player_data(data_folder)
-        plays = load_play_data(data_folder)
-
-        # clean
-        tracking = clean_tracking_angles(tracking)
-        tracking = standardize_tracking_plays(tracking, plays)
-        # tracking = football_relative_positions(tracking)
-        players = clean_player_data(players)
-
-        # filter
-        # tracking = filter_early_frames(tracking)
-        # tracking = filter_play_start_frames(tracking)
-        # tracking = filter_play_end_frames(tracking)
-        tracking = filter_outlier_frames(tracking)
-        # tracking = filter_football_tracking_frames(tracking)
-
-        routes_per_play = tracking.groupby(['gameId', 'playId'])['nflId'].nunique(dropna=False).iloc[0]
-        logger.debug(f"{routes_per_play} routes per play")
-
-        # transform
-        plays, tracking = find_play_invariant_columns(plays, tracking)
-        player_plays, tracking = find_player_play_invariant_columns(None, tracking)
-        player_plays, plays = clean_player_play_data(player_plays, plays)
-        # tracking, player_plays = player_relative_positions(tracking, player_plays)
-
-        # mirror
-        tracking, player_plays, plays = mirror_tracking_data(tracking, player_plays, plays)
-
-        # merge
-        merged = merge_dataframes(tracking, player_plays, plays, players).reindex()
-        assert (merged.groupby(['gameId', 'playId'])['nflId'].nunique(dropna=False) == routes_per_play).all()
-
-        merged_dfs.append(merged)
-        if minimal: 
-            break
-
-    
-    merged = pd.concat(merged_dfs)
-
-    if not df_name: 
-        df_name = ("bdb2024" + ("" if not minimal else "_minimal") + ".parquet")
-
-    # save
-    merged.to_parquet(
-        path = out_folder / df_name,
-        index=False
-    )
-
-
-
-if __name__ == '__main__': 
-    t1 = time.time()
-    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
-
-    run_data_pipeline(Path("/Users/henrykraessig/code/bdb2024/data/"), Path("./data"), minimal=True)
-    
-    logging.info(f"data pipeline completed in {time.time() - t1: .1f} seconds")

@@ -1,32 +1,25 @@
-from pathlib import Path
-import json
-import pandas as pd
 import logging
-import torch
-from PIL import Image
-import io
-from torch.utils.tensorboard import SummaryWriter
+from pathlib import Path
 from datetime import datetime
-import sys
-import time
-import numpy as np
-import time
 
-import bdb2025
-import bdb2024
-import datasets
-import backbones
-import utils
-import hooks
+import torch
+from torch.utils.tensorboard import SummaryWriter
+
+from nflMAE.data import datasets
+from nflMAE.utils import utils
+from nflMAE.utils import hooks
 
 logger = logging.getLogger(__name__)
 device = torch.device('mps')
 
 
-def make_experiment_folder(train_config: dict): 
+def make_experiment_folder(train_config: dict, folder_name: str=None): 
     # save train run in experiment subfolder
-    now = datetime.now().strftime("%m-%d-%y--%H:%M:%S")
-    experiment_folder = Path(train_config["target_folder"]) / ("experiment" + now)
+    if folder_name is None:
+        now = datetime.now().strftime("%m-%d-%y--%H:%M:%S")
+        experiment_folder = Path(train_config['target_folder']) / ("experiment" + now)
+    else: 
+        experiment_folder = Path(train_config['target_folder'] / folder_name)
     Path.mkdir(experiment_folder)
     return experiment_folder
 
@@ -41,8 +34,7 @@ def dict_to_device(data_dict):
 
 
 class MaskedNflLoss(torch.nn.Module):
-
-
+    """Weighted loss for pretraining MAE task"""
     def __init__(self): 
         super().__init__()
         self.position_idx = slice(0, 2)
@@ -86,6 +78,7 @@ class MAETrainer:
             model: torch.nn.Module,
             train_dataset: datasets.FrameDataset,
             val_dataset: datasets.FrameDataset,
+            folder_name: str=None,
 
     ): 
         self.cfg = cfg
@@ -93,7 +86,7 @@ class MAETrainer:
         self.model = model
 
         # make experiment folder
-        self.experiment_folder = make_experiment_folder(cfg)
+        self.experiment_folder = make_experiment_folder(cfg, folder_name)
         self.writer = SummaryWriter(self.experiment_folder)
 
         # build dataloaders
@@ -117,34 +110,19 @@ class MAETrainer:
     
     @torch.no_grad()
     def generate_mask(self, data_dict: dict):
-        """Modifies data dict in place"""
+        """Create mask for MAE"""
 
         # if coordinates are present, determine grid centroid for noisy masking
-        if 'coord' in data_dict:
+        if "coord" in data_dict:
             min_coord, _ = data_dict['coord'].min(dim=1)
             # find patch num for each dimension
             grid_coord = ((data_dict['coord'] - min_coord.unsqueeze(1)) // self.cfg['grid_size']).int()
             # grab all points in the same patch
             unique, cluster = torch.unique(grid_coord.cpu(), dim=1, sorted=True, return_inverse=True)
-            cluster = cluster.to('mps')
+            cluster = cluster.to("mps")
             data_dict['centroid'] = grid_coord * self.cfg['grid_size'] + self.cfg['grid_size'] / 2
 
         #assert not (self.cfg['mask_regions'] and not self.cfg['encode_masks'])# not ready yet, can't handle uneven masking
-
-        if self.cfg['mask_regions'] and False: # needs to implement uneven sequence batching (see pointtransformer)
-            # mask some grid patches
-            num_patches = unique.shape[1]
-            mask_patch_num = int(num_patches * self.cfg['mask_ratio'])
-            # shuffle indexes, slice
-            patch_index = torch.randperm(num_patches)
-            mask_patch_index = patch_index[:mask_patch_num]
-
-            # boolean mask
-            player_mask = torch.isin(cluster, mask_patch_index)
-
-            # save mask information for decoder (true = masked)
-            data_dict['mask'] = player_mask
-
 
         if self.cfg['mask_players']:
             N, P, D = data_dict['feat'].shape  
@@ -189,17 +167,17 @@ class MAETrainer:
     def train(
             self, 
     ): 
-        self.run_hooks('before_train')
+        self.run_hooks("before_train")
 
         # TODO: support resume training
         try: 
             while self.epoch < self.num_epochs: 
 
-                self.run_hooks('before_epoch')
+                self.run_hooks("before_epoch")
                 self.train_epoch()
 
                 self.eval_epoch()
-                self.run_hooks('after_epoch')
+                self.run_hooks("after_epoch")
 
                 self.epoch += 1
 
@@ -207,8 +185,7 @@ class MAETrainer:
             print()
             logger.warning(f"Training interrupted after {self.epoch} steps")
 
-        self.run_hooks('after_train')
-
+        self.run_hooks("after_train")
 
 
     def train_epoch(self):
@@ -217,7 +194,7 @@ class MAETrainer:
 
         self.model.train()
         for step, minibatch in enumerate(self.train_dataloader): 
-            self.run_hooks('before_train_step')
+            self.run_hooks("before_train_step")
             bs, n, c = minibatch['feat'].shape
             
             self.optim.zero_grad()
@@ -238,7 +215,7 @@ class MAETrainer:
             self.optim.step()
             self.lr_scheduler.step()
 
-            self.run_hooks('after_train_step')
+            self.run_hooks("after_train_step")
 
 
         self.mean_train_loss = total_loss / num_batches
@@ -253,7 +230,7 @@ class MAETrainer:
         with torch.no_grad():
 
             for step, val_minibatch in enumerate(self.val_dataloader):
-                self.run_hooks('before_val_step')
+                self.run_hooks("before_val_step")
                 bs, n, c = val_minibatch['feat'].shape
                 val_minibatch = dict_to_device(val_minibatch)
                 self.generate_mask(val_minibatch)
@@ -261,7 +238,7 @@ class MAETrainer:
 
                 loss = self.loss_fn(pred, val_minibatch['feat'][val_minibatch['mask']].view(bs, -1, c))
                 total_loss += loss.item()
-                self.run_hooks('after_val_step')
+                self.run_hooks("after_val_step")
 
             self.val_sample = val_minibatch['feat'][0] 
             self.val_prediction = pred[0]
@@ -285,8 +262,8 @@ class MAETrainer:
 
         optim = torch.optim.AdamW(
             [
-                {'params': sid_params, 'weight_decay': 0.02},
-                {'params': params, 'weight_decay': 0.02}
+                {"params": sid_params, "weight_decay": 0.02},
+                {"params": params, "weight_decay": 0.02}
             ]
         )
         return optim
@@ -294,10 +271,10 @@ class MAETrainer:
 
     def register_hooks(self, hooks: list[hooks.Hook]): 
         hook_names = [
-            'before_train', 'before_epoch',
-            'before_train_step', 'after_train_step', 
-            'before_val_step', 'after_val_step',
-            'after_epoch', 'after_train'
+            "before_train", "before_epoch",
+            "before_train_step", "after_train_step", 
+            "before_val_step", "after_val_step",
+            "after_epoch", "after_train"
         ]
         for name in hook_names: 
             setattr(self, name, [])
@@ -317,6 +294,3 @@ class MAETrainer:
         for fn in hook_fns: 
             fn(self)
         return
-
-
-

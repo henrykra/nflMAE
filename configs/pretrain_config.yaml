@@ -1,7 +1,7 @@
 data:
   minimal: True
   force: False
-  bdb_folder: /Users/henrykraessig/code/bdb2024/data/
+  bdb_folder: /Users/henrykraessig/code/bdb2025/data/
   data_folder: /Users/henrykraessig/code/route2vec/data/
   train: 0.85
   val: 0.15
@@ -20,13 +20,16 @@ train:
   mask_ratio: 0.75
   reference_frame: True
 
+  folder_name:
+  
+
 model:
-  encode_masks: False
+  encode_masks: True
   add_rope: True
 
   encoder: 
-    model_dimension: 64
-    hidden_dimension: 256
+    model_dimension: 32
+    hidden_dimension: 128
     heads: 2
     attn_drop: .3
     proj_drop: .3
@@ -36,9 +39,9 @@ model:
     norm_first: True
     add_cls_token: True
   decoder: 
-    model_dimension: 64
-    hidden_dimension: 256
-    heads: 2
+    model_dimension: 32
+    hidden_dimension: 128
+    heads: 4
     attn_drop: .3
     proj_drop: .3
     ffn_drop: .3

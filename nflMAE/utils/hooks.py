@@ -1,10 +1,11 @@
-import matplotlib.pyplot as plt
+from pathlib import Path
 import logging
 import torch
-import numpy as np
-from pathlib import Path
 import yaml
 import time
+
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ class PlotFrame(Hook):
     def after_epoch(self, trainer):
         # plot a frame from a validation sample for the MAE training task
         # add the frame to tensorboard images
-        assert hasattr(trainer, 'val_sample') and hasattr(trainer, 'val_prediction') and hasattr(trainer, 'val_mask')
+        assert hasattr(trainer, "val_sample") and hasattr(trainer, "val_prediction") and hasattr(trainer, "val_mask")
 
         if trainer.epoch % self.every != 0: 
             return
@@ -51,7 +52,7 @@ class PlotFrame(Hook):
                 c=self.color_map[c], 
                 label=self.label_map[c],
                 alpha=~mask[club_mask] * .7 + .3,
-                s=60, edgecolors='black', linewidths=.5, zorder=3,
+                s=60, edgecolors="black", linewidths=.5, zorder=3,
             )
 
         x_pred, y_pred = pred[:, 0], pred[:, 1]
@@ -60,7 +61,7 @@ class PlotFrame(Hook):
             c="#10ab0e", 
             label="prediction",
             alpha=.7,
-            s=60, edgecolors='black', linewidths=.5, zorder=3,
+            s=60, edgecolors="black", linewidths=.5, zorder=3,
         )
 
 
@@ -69,8 +70,8 @@ class PlotFrame(Hook):
             if ci == 0: # skip ball
                 continue
             ax.annotate(
-                '', xy=(xi + 1.5 + oxi, yi + 1.5 * oyi), xytext=(xi, yi),
-                arrowprops=dict(arrowstyle='->', color='black', lw=1.2),
+                "", xy=(xi + 1.5 + oxi, yi + 1.5 * oyi), xytext=(xi, yi),
+                arrowprops=dict(arrowstyle="->", color="black", lw=1.2),
                 zorder=2
             )
 
@@ -86,7 +87,7 @@ class PlotFrame(Hook):
         fig.tight_layout()
 
         # save figure to tensorboard
-        trainer.writer.add_figure('Samples', fig, trainer.epoch)
+        trainer.writer.add_figure("Samples", fig, trainer.epoch)
         trainer.writer.flush()
         return 
         
@@ -105,7 +106,7 @@ class Plot2Frames(PlotFrame):
         for i in range(2):
             # plot a frame from a validation sample for the MAE training task
             # add the frame to tensorboard images
-            assert hasattr(trainer, 'val_sample') and hasattr(trainer, 'val_prediction') and hasattr(trainer, 'val_mask')
+            assert hasattr(trainer, "val_sample") and hasattr(trainer, "val_prediction") and hasattr(trainer, "val_mask")
     
             if trainer.epoch % self.every != 0: 
                 return
@@ -132,7 +133,7 @@ class Plot2Frames(PlotFrame):
                     c=self.color_map[c], 
                     label=self.label_map[c],
                     alpha=~mask[club_mask] * .7 + .3,
-                    s=60, edgecolors='black', linewidths=.5, zorder=3,
+                    s=60, edgecolors="black", linewidths=.5, zorder=3,
                 )
     
             x_pred, y_pred = pred[:, 0], pred[:, 1]
@@ -141,7 +142,7 @@ class Plot2Frames(PlotFrame):
                 c="#10ab0e", 
                 label="prediction",
                 alpha=.7,
-                s=60, edgecolors='black', linewidths=.5, zorder=3,
+                s=60, edgecolors="black", linewidths=.5, zorder=3,
             )
     
     
@@ -150,8 +151,8 @@ class Plot2Frames(PlotFrame):
                 if ci == 0: # skip ball
                     continue
                 axes[i].annotate(
-                    '', xy=(xi + 1.5 + oxi, yi + 1.5 * oyi), xytext=(xi, yi),
-                    arrowprops=dict(arrowstyle='->', color='black', lw=1.2),
+                    "", xy=(xi + 1.5 + oxi, yi + 1.5 * oyi), xytext=(xi, yi),
+                    arrowprops=dict(arrowstyle="->", color="black", lw=1.2),
                     zorder=2
                 )
     
@@ -166,7 +167,7 @@ class Plot2Frames(PlotFrame):
     
         fig.tight_layout()
         # save figure to tensorboard
-        trainer.writer.add_figure('Samples', fig, trainer.epoch)
+        trainer.writer.add_figure("Samples", fig, trainer.epoch)
         trainer.writer.flush()
         return 
 
@@ -176,7 +177,7 @@ class PlotTackle(PlotFrame):
     def after_epoch(self, trainer):
         # plot a frame from a validation sample for the MAE training task
         # add the frame to tensorboard images
-        assert hasattr(trainer, 'val_sample') and hasattr(trainer, 'val_prediction') and hasattr(trainer, 'val_target') and hasattr(trainer, 'val_bc')
+        assert hasattr(trainer, "val_sample") and hasattr(trainer, "val_prediction") and hasattr(trainer, "val_target") and hasattr(trainer, "val_bc")
 
         if trainer.epoch % self.every != 0: 
             return
@@ -201,7 +202,7 @@ class PlotTackle(PlotFrame):
                 c=self.color_map[c], 
                 label=self.label_map[c],
                 alpha=.7,
-                s=60, edgecolors='black', linewidths=.5, zorder=3,
+                s=60, edgecolors="black", linewidths=.5, zorder=3,
             )
 
         # arrows
@@ -209,8 +210,8 @@ class PlotTackle(PlotFrame):
             if ci == 0: # skip ball
                 continue
             ax.annotate(
-                '', xy=(xi + 1.5 + oxi, yi + 1.5 * oyi), xytext=(xi, yi),
-                arrowprops=dict(arrowstyle='->', color='black', lw=1.2),
+                "", xy=(xi + 1.5 + oxi, yi + 1.5 * oyi), xytext=(xi, yi),
+                arrowprops=dict(arrowstyle="->", color="black", lw=1.2),
                 zorder=2
             )
 
@@ -220,7 +221,7 @@ class PlotTackle(PlotFrame):
             c="#10AA10",
             marker="X",
             label="Tackle",
-            edgecolors='black', linewidths=.5, zorder=4
+            edgecolors="black", linewidths=.5, zorder=4
         )
 
         # prediction
@@ -229,7 +230,7 @@ class PlotTackle(PlotFrame):
             c="#ECF541",
             marker="X",
             label="Tackle",
-            edgecolors='black', linewidths=.5, zorder=4
+            edgecolors="black", linewidths=.5, zorder=4
         )
 
 
@@ -244,7 +245,8 @@ class PlotTackle(PlotFrame):
         fig.tight_layout()
 
         # save figure to tensorboard
-        trainer.writer.add_figure('Samples', fig, trainer.epoch)
+        trainer.writer.add_figure("Samples", fig, trainer.epoch)
+        trainer.writer.flush()
         return 
 
 
@@ -255,10 +257,10 @@ class AddTrainLoss(Hook):
 
     def after_epoch(self, trainer): 
         # add the average train loss for the epoch to tensorboard
-        if not hasattr(trainer, 'mean_train_loss') or not hasattr(trainer, 'epoch'): 
-            logger.error(f'Trainer loss not available for logging')
+        if not hasattr(trainer, "mean_train_loss") or not hasattr(trainer, "epoch"): 
+            logger.error("Trainer loss not available for logging")
             return 
-        trainer.writer.add_scalar('Loss/train', trainer.mean_train_loss, trainer.epoch)
+        trainer.writer.add_scalar("Loss/train", trainer.mean_train_loss, trainer.epoch)
         return
 
 
@@ -266,10 +268,10 @@ class AddValLoss(Hook):
 
     def after_epoch(self, trainer): 
         # add the average val loss for the epoch to tensorboard
-        if not hasattr(trainer, 'mean_val_loss') or not hasattr(trainer, 'epoch'): 
-            logger.error(f'Trainer loss not available for logging')
+        if not hasattr(trainer, "mean_val_loss") or not hasattr(trainer, "epoch"):
+            logger.error("Trainer loss not available for logging")
             return 
-        trainer.writer.add_scalar('Loss/val', trainer.mean_val_loss, trainer.epoch)
+        trainer.writer.add_scalar("Loss/val", trainer.mean_val_loss, trainer.epoch)
         return
 
 
@@ -279,7 +281,7 @@ class EpochPBar(Hook):
         self.steps = 0
         self.n_hashes = 0
         self.t = time.time()
-        print(f'Train Epoch {trainer.epoch}\t[', end='', flush=True)
+        print(f"Train Epoch {trainer.epoch}\t[", end="", flush=True)
 
     def after_train_step(self, trainer):
         self.steps += 1
@@ -289,11 +291,11 @@ class EpochPBar(Hook):
         n_hashes = int(pct_done * 10)
         if n_hashes > self.n_hashes: 
             self.n_hashes = n_hashes
-            print('#', end='', flush=True)
+            print("#", end="", flush=True)
 
 
     def after_epoch(self, trainer):
-        print(f']\tEpoch Time: {time.time() - self.t:.1f}s')
+        print(f"]\tEpoch Time: {time.time() - self.t:.1f}s")
 
 
 class PlotLayerGrads(Hook): 
@@ -345,7 +347,7 @@ class PlotLayerActNorms(Hook):
 
     def before_train(self, trainer): 
         trainer.writer.add_custom_scalars({
-            'Activations': {'block_activations': ['Multiline', ['Blocks/Act/norm_0', 'Blocks/Act/norm_1', 'Blocks/Act/norm_2', 'Blocks/Act/norm_3']]}
+            "Activations": {"block_activations": ["Multiline", ["Blocks/Act/norm_0", "Blocks/Act/norm_1", "Blocks/Act/norm_2", "Blocks/Act/norm_3"]]}
         })
         return
 
@@ -365,9 +367,9 @@ class PlotLayerActNorms(Hook):
             return hook
 
         # my model encoder backbone only
-        if hasattr(trainer.model.encoder, 'blocks'): 
+        if hasattr(trainer.model.encoder, "blocks"): 
             for i, block in enumerate(trainer.model.encoder.blocks): 
-                handle = block.register_forward_hook(make_block_act_norm_hook(f'block_{i}'))
+                handle = block.register_forward_hook(make_block_act_norm_hook(f"block_{i}"))
                 self.handles.append(handle)
 
 
@@ -375,7 +377,7 @@ class PlotLayerActNorms(Hook):
         # logs block activations for the first training batch
         if self.run_hook: 
             for i, norm in enumerate(self.act_norms.values()): 
-                trainer.writer.add_scalar(f'Blocks/Act/norm_{i}', norm, trainer.epoch)
+                trainer.writer.add_scalar(f"Blocks/Act/norm_{i}", norm, trainer.epoch)
 
             for handle in self.handles: 
                 handle.remove()
@@ -387,7 +389,7 @@ class PlotLayerActNorms(Hook):
 class PlotLayerSidVals(Hook):
     def before_train(self, trainer): 
         trainer.writer.add_custom_scalars({
-            'SID Values': {'sid_vals': ['Multiline', ['Blocks/Sid/sid_0', 'Blocks/Sid/sid_1', 'Blocks/Sid/sid_2', 'Blocks/Sid/sid_3']]}
+            "SID Values": {"sid_vals": ["Multiline", ["Blocks/Sid/sid_0", "Blocks/Sid/sid_1", "Blocks/Sid/sid_2", "Blocks/Sid/sid_3"]]}
         })
         return
     
@@ -407,9 +409,9 @@ class PlotLayerSidVals(Hook):
             return hook
 
         # my model encoder backbone only
-        if hasattr(trainer.model.encoder, 'blocks'): 
+        if hasattr(trainer.model.encoder, "blocks"): 
             for i, block in enumerate(trainer.model.encoder.blocks): 
-                handle = block.register_forward_hook(make_block_act_norm_hook(f'block_{i}'))
+                handle = block.register_forward_hook(make_block_act_norm_hook(f"block_{i}"))
                 self.handles.append(handle)
 
 
@@ -417,7 +419,7 @@ class PlotLayerSidVals(Hook):
         # logs block activations for the first training batch
         if self.run_hook: 
             for i, val in enumerate(self.sid_vals.values()): 
-                trainer.writer.add_scalar(f'Blocks/Sid/sid_{i}', val, trainer.epoch)
+                trainer.writer.add_scalar(f"Blocks/Sid/sid_{i}", val, trainer.epoch)
 
             for handle in self.handles: 
                 handle.remove()
@@ -440,7 +442,7 @@ class RunLinprobeTest(Hook):
 
 class LogHParams(Hook): 
     def before_train(self, trainer): 
-        with Path(trainer.experiment_folder, 'config.yaml').open('w') as f:
+        with Path(trainer.experiment_folder, "config.yaml").open('w') as f:
             yaml.dump(trainer.cfg, f)
 
         return
@@ -450,4 +452,13 @@ class SaveModel(Hook):
 
     def after_train(self, trainer):
         torch.save(trainer.model, trainer.experiment_folder / "rest.pt")
-        
+
+
+class PrintStat(Hook):
+
+    def __init__(self, every: int=1, name: str="Stat"):
+        super().__init__(every)
+        self.name = name
+
+    def after_epoch(self, trainer):
+        print(f"Val {self.name}: {trainer.stat:.4f}")
