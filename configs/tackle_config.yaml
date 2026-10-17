@@ -1,6 +1,6 @@
 data:
-  bdb_folder: /Users/henrykraessig/code/bdb2024/data
-  data_folder: /Users/henrykraessig/code/route2vec/datasets
+  bdb_year: 2024
+  data_folder: datasets
   force: true
   minimal: true
   test_weeks:
@@ -10,13 +10,13 @@ data:
   - 1
   - 2
   val: 0.2
-model: /Users/henrykraessig/code/route2vec/experiments/large/nflmae.pt
+model: experiments/large/nflmae.pt
 train:
   batch_size: 256
   epochs: 1
   lr: 0.0005
   patience: 2
   target_features: 2
-  target_folder: /Users/henrykraessig/code/route2vec/experiments
+  target_folder: experiments
   trainable: full
   use_cls_token: false

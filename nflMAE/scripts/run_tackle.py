@@ -13,6 +13,8 @@ from nflMAE.data import datasets
 from nflMAE.engines import finetune
 from nflMAE.utils import hooks 
 from nflMAE import root
+from nflMAE.utils import utils
+from nflMAE.data.bdb_common import bdb_folder
 
 logger = logging.getLogger(__name__)
 device = torch.device('mps')
@@ -22,7 +24,7 @@ def parse_config():
     with Path(root.parent, "configs", "tackle_config.yaml").open("r") as configfile:
         config = yaml.safe_load(configfile)
         logger.info(config)
-    return config
+    return utils.resolve_config_paths(config)
 
 
 def main(config: dict): 
@@ -35,7 +37,7 @@ def main(config: dict):
     if data_config['force'] or not train_data_path.exists():
         t1 = time.time()
         bdb2024.run_data_pipeline(
-            Path(data_config['bdb_folder']), 
+            bdb_folder(data_config['bdb_year']), 
             Path(data_config['data_folder']), 
             minimal=data_config['minimal'],
             weeks=data_config['train_weeks'],
@@ -63,7 +65,7 @@ def main(config: dict):
     if data_config['force'] or not test_data_path.exists():
         t1 = time.time()
         bdb2024.run_data_pipeline(
-            Path(data_config['bdb_folder']), 
+            bdb_folder(data_config['bdb_year']), 
             Path(data_config['data_folder']), 
             minimal=data_config['minimal'],
             weeks=data_config['test_weeks'],

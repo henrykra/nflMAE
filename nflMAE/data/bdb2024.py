@@ -201,6 +201,7 @@ if __name__ == '__main__':
     t1 = time.time()
     logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
-    run_data_pipeline(Path("/Users/henrykraessig/code/bdb2024/data/"), Path("./data"), minimal=True)
+    from nflMAE.data.bdb_common import bdb_folder
+    run_data_pipeline(bdb_folder(2024), Path("./data"), minimal=True)
     
     logging.info(f"data pipeline completed in {time.time() - t1: .1f} seconds")

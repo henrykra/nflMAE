@@ -4,7 +4,10 @@ import hashlib
 import torch
 import numpy as np
 
-ARTIFACT_DIR = Path("/Users/henrykraessig/code/route2vec/data")
+from nflMAE import repo
+
+ARTIFACT_DIR = repo / "data"
+
 
 
 class Artifact:
@@ -87,3 +90,15 @@ class CosineLRScheduler(torch.optim.lr_scheduler.LRScheduler):
 
     def __getitem__(self, it):
         return self.get(it)
+
+def resolve_config_paths(config: dict) -> dict:
+    """Resolve repo-relative paths in a loaded config against the repo root."""
+    data = config.get('data', {})
+    if isinstance(data.get('data_folder'), str):
+        data['data_folder'] = str(repo / data['data_folder'])
+    train = config.get('train', {})
+    if isinstance(train.get('target_folder'), str):
+        train['target_folder'] = str(repo / train['target_folder'])
+    if isinstance(config.get('model'), str):
+        config['model'] = str(repo / config['model'])
+    return config

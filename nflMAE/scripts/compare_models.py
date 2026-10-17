@@ -4,21 +4,21 @@ from pathlib import Path
 import sys
 
 # Pretrain
-config_path = Path("/Users/henrykraessig/code/route2vec/configs/pretrain_config.yaml")
-scripts_path = Path("/Users/henrykraessig/code/route2vec/nflMAE/scripts")
+scripts_path = Path(__file__).parent
+config_path = scripts_path.parent.parent / "configs" / "pretrain_config.yaml"
 pretrain_config = {
     "data": {
         "minimal": True,
         "force": False,
-        "bdb_folder": "/Users/henrykraessig/code/bdb2024/data",
-        "data_folder": "/Users/henrykraessig/code/route2vec/datasets",
+        "bdb_year": 2024,
+        "data_folder": "datasets",
         "train": 0.85,
         "val": 0.15,
     },
     "train": {
         "epochs": 1,
         "batch_size": 256,
-        "target_folder": "/Users/henrykraessig/code/route2vec/experiments",
+        "target_folder": "experiments",
         "lr_base": 0.001,
         "lr_final": 0.00005,
         "lr_warmup": 1000,
@@ -77,12 +77,13 @@ subprocess.run([sys.executable, scripts_path / "run_pretrain.py"])
 
 
 # 1. Tackle position
-config_dir = Path("/Users/henrykraessig/code/route2vec/configs")
+scripts_path = Path(__file__).parent
+config_dir = scripts_path.parent.parent / "configs"
 
 config_scratch = {
     "data": {
-        "bdb_folder": "/Users/henrykraessig/code/bdb2024/data",
-        "data_folder": "/Users/henrykraessig/code/route2vec/datasets",
+        "bdb_year": 2024,
+        "data_folder": "datasets",
         "force": True,
         "minimal": True,
         "train": .80,
@@ -91,7 +92,7 @@ config_scratch = {
         "test_weeks": [9],
     },
     "train": {
-        "target_folder": "/Users/henrykraessig/code/route2vec/experiments",
+        "target_folder": "experiments",
         "target_features": 2,
         "epochs": 1,
         "batch_size": 256,
@@ -155,7 +156,7 @@ config_path = config_dir / "route_config.yaml"
 # a. Train from scratch
 config_path = config_dir / "route_config.yaml"
 
-config_scratch['data']['bdb_folder'] = "/Users/henrykraessig/code/bdb2025/data"
+config_scratch['data']['bdb_year'] = 2025
 
 # small
 config_scratch['model']['model_dimension'] = 32
@@ -200,7 +201,7 @@ config_path = config_dir / "manzone_config.yaml"
 
 # a. Train from scratch
 config_path = config_dir / "manzone_config.yaml"
-config_scratch['data']['bdb_folder'] = "/Users/henrykraessig/code/bdb2025/data"
+config_scratch['data']['bdb_year'] = 2025
 
 # small
 config_scratch['model']['model_dimension'] = 32

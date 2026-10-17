@@ -3,11 +3,29 @@ import logging
 from pathlib import Path
 import numpy as np
 from typing import Optional
+import os
+
+from nflMAE import load_env
 
 logger = logging.getLogger(__name__)
 
 MIN_WEEK = 1
 MAX_WEEK = 9
+
+def bdb_folder(year: int) -> Path:
+    """Return the path to the Big Data Bowl raw data folder for a given year"""
+    load_env()
+    base = os.environ.get(f"NFL_BDB_{year}")
+    if not base:
+        raise RuntimeError(
+            f"NFL_BDB_{year} is not set. Point it at your bdb{year} big-data-bowl "
+            "checkout folder (see .env.example)."
+        )
+    folder = Path(base).expanduser()
+    if not folder.is_dir():
+        raise FileNotFoundError(f"BDB data folder not found: {folder}. Check NFL_BDB_{year} ('{base}').")
+    return folder
+
 
 # Base data loading functions
 def load_csv_data(

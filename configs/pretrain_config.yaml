@@ -1,6 +1,6 @@
 data:
-  bdb_folder: /Users/henrykraessig/code/bdb2024/data
-  data_folder: /Users/henrykraessig/code/route2vec/datasets
+  bdb_year: 2025
+  data_folder: datasets
   force: false
   minimal: true
   train: 0.85
@@ -38,4 +38,4 @@ train:
   mask_players: true
   mask_ratio: 0.75
   reference_frame: true
-  target_folder: /Users/henrykraessig/code/route2vec/experiments
+  target_folder: experiments

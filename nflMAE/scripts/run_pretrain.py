@@ -11,6 +11,8 @@ from nflMAE.models import models
 from nflMAE.engines import train
 from nflMAE.utils import hooks
 from nflMAE import root
+from nflMAE.utils import utils
+from nflMAE.data.bdb_common import bdb_folder
 
 logger = logging.getLogger(__name__)
 device = torch.device("mps")
@@ -26,7 +28,10 @@ def main(config: dict):
     # load bdb data
     data_config = config['data']
 
-    bdb_2025_folder = Path("/Users/henrykraessig/code/bdb2025/data/")
+    if data_config['bdb_year'] != 2025:
+        raise ValueError(f"run_pretrain currently only supports BDB 2025 data, got bdb_year={data_config['bdb_year']}")
+
+    bdb_2025_folder = bdb_folder(data_config['bdb_year'])
     
     data_path_2025 = Path(
         data_config['data_folder']) / ("bdb2025" + ("_minimal.parquet" if data_config["minimal"] else ".parquet")
