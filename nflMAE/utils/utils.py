@@ -91,6 +91,37 @@ class CosineLRScheduler(torch.optim.lr_scheduler.LRScheduler):
     def __getitem__(self, it):
         return self.get(it)
 
+
+class MaskRatioScheduler:
+
+    def __init__(
+        self,
+        start_value,
+        final_value,
+        total_iters
+    ):
+        self.final_value = final_value
+        self.total_iters = total_iters
+
+        self.schedule = np.linspace(start_value, final_value, total_iters)
+
+        self.iter = 0
+        return 
+
+    def get(self):
+        if self.iter >= self.total_iters:
+            return self.final_value
+        else: 
+            return self.schedule[self.iter]
+
+    def step(self):
+        self.iter += 1
+
+    def reset(self):
+        self.iter = 0
+
+    
+
 def resolve_config_paths(config: dict) -> dict:
     """Resolve repo-relative paths in a loaded config against the repo root."""
     data = config.get('data', {})

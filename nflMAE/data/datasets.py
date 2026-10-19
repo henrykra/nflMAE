@@ -120,7 +120,7 @@ class FrameDataset(torch.utils.data.Dataset):
 
 class MultiFrameDataset(FrameDataset):
     """Dataset representing a frame from and NFL play, and a reference frame before it"""
-    frame_dif = 15
+    frame_dif = 30
 
     def __init__(self, merged_df: pd.DataFrame):
         super().__init__(merged_df)
@@ -287,7 +287,8 @@ class TacklePosLoss(torch.nn.Module):
         self.loss = torch.nn.SmoothL1Loss()
 
     def forward(self, pred: torch.Tensor, minibatch: dict):
-        return self.loss(pred, minibatch['target'])
+        # SmoothL1Loss's MPS kernel requires contiguous inputs
+        return self.loss(pred.contiguous(), minibatch['target'].contiguous())
 
 
 class ManZoneDataset(FrameDataset):

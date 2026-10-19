@@ -1,8 +1,8 @@
 data:
   bdb_year: 2025
   data_folder: datasets
-  force: false
-  minimal: true
+  force: true
+  minimal: false
   train: 0.85
   val: 0.15
 model:
@@ -11,9 +11,9 @@ model:
     attn_drop: 0.3
     depth: 1
     ffn_drop: 0.3
-    heads: 16
-    hidden_dimension: 2048
-    model_dimension: 512
+    heads: 2
+    hidden_dimension: 128
+    model_dimension: 32
     norm_first: true
     proj_drop: 0.3
   encode_masks: true
@@ -22,20 +22,21 @@ model:
     attn_drop: 0.3
     depth: 4
     ffn_drop: 0.3
-    heads: 16
-    hidden_dimension: 2048
-    model_dimension: 512
+    heads: 2
+    hidden_dimension: 128
+    model_dimension: 32
     norm_first: true
     proj_drop: 0.3
 train:
   batch_size: 256
-  epochs: 1
-  folder_name: large
+  epochs: 15
+  folder_name: small
   grid_size: 10
   lr_base: 0.001
   lr_final: 5.0e-05
   lr_warmup: 1000
   mask_players: true
-  mask_ratio: 0.75
+  mask_ratio_base: 0.70
+  mask_ratio_final: 0.80
   reference_frame: true
   target_folder: experiments

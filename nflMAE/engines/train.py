@@ -52,18 +52,18 @@ class MaskedNflLoss(torch.nn.Module):
         self.metrics_idx = slice(9, 11)
         self.metrics_weight = .1
 
-        self.mse_loss = torch.nn.MSELoss()
+        self.mse_loss = torch.nn.SmoothL1Loss()
         self.bce_loss = torch.nn.BCEWithLogitsLoss()
 
     
     def forward(self, pred, target): 
 
         total_loss = (
-            self.position_weight * self.mse_loss(pred[..., self.position_idx], target[..., self.position_idx]) + 
-            self.orientation_weight * self.mse_loss(pred[..., self.orientation_idx], target[..., self.orientation_idx]) + 
-            self.velocity_weight * self.mse_loss(pred[..., self.velocity_idx], target[..., self.velocity_idx]) + 
-            self.side_weight * self.bce_loss(pred[..., self.side_idx], target[..., self.side_idx]) + 
-            self.metrics_weight * self.mse_loss(pred[..., self.metrics_idx], target[..., self.metrics_idx])
+            self.position_weight * self.mse_loss(pred[..., self.position_idx].contiguous(), target[..., self.position_idx].contiguous()) + 
+            self.orientation_weight * self.mse_loss(pred[..., self.orientation_idx].contiguous(), target[..., self.orientation_idx].contiguous()) + 
+            self.velocity_weight * self.mse_loss(pred[..., self.velocity_idx].contiguous(), target[..., self.velocity_idx].contiguous()) + 
+            self.side_weight * self.bce_loss(pred[..., self.side_idx].contiguous(), target[..., self.side_idx].contiguous()) + 
+            self.metrics_weight * self.mse_loss(pred[..., self.metrics_idx].contiguous(), target[..., self.metrics_idx].contiguous())
         )
 
         return total_loss
@@ -97,15 +97,16 @@ class MAETrainer:
 
         self.loss_fn = MaskedNflLoss()
 
-        self.num_epochs = cfg["epochs"]
+        self.num_epochs = cfg['epochs']
         self.epoch = 0
         self.total_steps = len(self.train_dataloader) * self.num_epochs
 
         # build schedulers
         self.lr_scheduler = utils.CosineLRScheduler(self.optim, cfg['lr_base'], cfg['lr_final'], self.total_steps, warmup_iters=cfg['lr_warmup']) # TODO: give config[lr_schedule] = {...}
         # TODO: weight decay schedule
-        # TODO: mask schedule
 
+        self.mask_scheduler = utils.MaskRatioScheduler(cfg['mask_ratio_base'], cfg['mask_ratio_final'], self.total_steps)
+        return
 
     
     @torch.no_grad()
@@ -130,7 +131,7 @@ class MAETrainer:
             n_maskable = min(n_maskable, P)
             # assert P == 23 -> noise everything but the football
 
-            len_keep = int(n_maskable * (1 - self.cfg['mask_ratio']))
+            len_keep = int(n_maskable * (1 - self.mask_scheduler.get()))
             
             noise = torch.rand(N, n_maskable, device='mps')  # noise in [0, 1], 
             
@@ -201,6 +202,7 @@ class MAETrainer:
             minibatch = dict_to_device(minibatch)
 
             self.generate_mask(minibatch)
+            self.mask_scheduler.step()
 
             pred = self.model(minibatch)
 

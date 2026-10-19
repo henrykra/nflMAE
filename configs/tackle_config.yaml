@@ -2,7 +2,7 @@ data:
   bdb_year: 2024
   data_folder: datasets
   force: true
-  minimal: true
+  minimal: false
   test_weeks:
   - 9
   train: 0.8
@@ -10,10 +10,19 @@ data:
   - 1
   - 2
   val: 0.2
-model: experiments/large/nflmae.pt
+model:
+  add_cls_token: true
+  attn_drop: 0.3
+  depth: 4
+  ffn_drop: 0.3
+  heads: 2
+  hidden_dimension: 128
+  model_dimension: 32
+  norm_first: true
+  proj_drop: 0.3
 train:
   batch_size: 256
-  epochs: 1
+  epochs: 15
   lr: 0.0005
   patience: 2
   target_features: 2
