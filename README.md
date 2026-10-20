@@ -1,17 +1,18 @@
 # nflMAE — Training a Self-Supervised Autoencoder for NFL Player Tracking
 
 ![UMAP embedding plot](docs/umap.png)
+*<p style="text-align: center">Nearby plays highlighted in red are both screens to the right</p>*
+___
 
-
->Transformers have been documented as a model architecture well-suited for solving problems with sports tracking data. Being permutation invariant with respect to input allows for models to overcome the "player ordering problem", and to be used for a variety of tasks when paired with task-specific heads. However, it is yet to be shown that the benefits of scale typically associated with transformer models apply to this type of tracking data. This project provides a general, self-supervised, pretraining recipe allowing for task specific models to take advantage of more data without requiring as many task-specific labels, and explores embedding space created by fine-tuning these generalized tracking models. 
-
+&emsp;Transformers have been documented as a model architecture well-suited for solving problems with sports tracking data. Being permutation invariant with respect to input allows for models to overcome the "player ordering problem", and to be used for a variety of tasks when paired with task-specific heads. However, it is yet to be shown that the benefits of scale typically associated with transformer models apply to this type of tracking data. This project provides a general, self-supervised, pretraining recipe allowing for task specific models to take advantage of more data without requiring as many task-specific labels, and explores embedding space created by fine-tuning these generalized tracking models. 
+___
 ## Pretraining
 
 This repository sets up a masked auto encoding pretraining task, similar to the masked language modeling task from BERT. Individual frames are treated as a set of tokens, and a given training sample will mask a percentage of the players, and each masked player token's output is trained to reproduce the frame. The model is also given a reference frame, up to 30 frames prior, and is given a parameter to bias attention scores between the same player from the reference frame in order to differentiate between the masked tokens. 
 
 
 ![Plotted refference frame, input frame, and autoencoding](docs/frame-trio.png)
-*Reference, masked, and predicted autoencoding frames from a training sample*
+*<p style="text-align: center">Reference, masked, and predicted autoencoding frames from a training sample</p>*
 
 The model uses causal attention between different frames and uses RoPE to encode time differences between frames. \<CLS\> tokens are added to model inputs and used to probed gather play-wide information. Readers are encouraged to review the model archtecture and training task design at `models/backbones.py`, `models/models.py` and `models/train.py`. 
 
@@ -38,11 +39,13 @@ Each task relies on labeled data that may not always be available, but can easil
 | nflMAE finetuned | 2 weeks () | |
 
 **Tackle Location**
-| Model | Training Samples | ADE |
+| Model | Training Samples | ADE (yards)|
 | --- | --- | --- |
 | Transformer (from scratch) | 8 weeks () | |
 | nflMAE linear probing | 2 weeks () | |
 | nflMAE finetuned | 2 weeks () | |
+
+$\text{ADE} = \frac{1}{N}\sum_{i=1}^{N} \sqrt{(x_{\text{pred}}^{(i)} - x_{\text{true}}^{(i)})^2 + (y_{\text{pred}}^{(i)} - y_{\text{true}}^{(i)})^2}$
 
 **Coverage ID**
 | Model | Training Samples | Accuracy |
@@ -51,7 +54,9 @@ Each task relies on labeled data that may not always be available, but can easil
 | nflMAE linear probing | 2 weeks () | |
 | nflMAE finetuned | 2 weeks () | |
 
+*d=32, n=4, h=2*
 
+---
 ## Repository
 
 ```bash

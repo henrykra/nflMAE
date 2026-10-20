@@ -105,7 +105,7 @@ def main(config: dict):
     
     # add hooks
     train_hooks = [
-        hooks.AddTrainLoss(1), hooks.AddValLoss(1), hooks.EpochPBar(1), hooks.PrintStat(1, "Accuracy")
+        hooks.AddTrainLoss(1), hooks.AddValLoss(1), hooks.EpochPBar(1), hooks.PrintStat(1, "Accuracy"), hooks.SaveModel()
     ]
     trainer.register_hooks(train_hooks)
 
@@ -119,11 +119,11 @@ def main(config: dict):
         print(f"Test Accuracy: {ade:.4f}")
         # trainer.writer.add_scalar("ADE/test", ade) # TODO: log hyperparams
 
-        trainer.clear()
-        model.encoder.blocks[-1].requires_grad_(True)
-        trainer.train()
-        ade = trainer.test()
-        print(f"Test Accuracy: {ade:.4f}")
+        # trainer.clear()
+        # model.encoder.blocks[-1].requires_grad_(True)
+        # trainer.train()
+        # ade = trainer.test()
+        # print(f"Test Accuracy: {ade:.4f}")
 
     trainer.clear()
     model.requires_grad_(True)

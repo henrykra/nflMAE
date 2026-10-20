@@ -184,8 +184,19 @@ class Finetuner:
                 stat = self.calculate_eval_statistic(pred.detach().cpu(), test_minibatch)
                 evals = torch.cat( (evals, stat) )
 
-
             stat = evals.mean()
+
+        # save test eval statistic to hparams
+        self.writer.add_hparams(
+            metric_dict={"Metric": stat.item()},
+            hparam_dict={
+                "batch_size": self.cfg['batch_size'],
+                "lr": self.cfg['lr'],
+                "use_cls_token": self.cfg['use_cls_token'],
+                "model_dimension": self.model.encoder.model_dimension,
+                "n_layers": len(self.model.encoder.blocks)
+            }
+        )
 
         return stat.item()
 

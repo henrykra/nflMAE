@@ -13,7 +13,7 @@ data:
 model: experiments/large/nflmae.pt
 train:
   batch_size: 256
-  epochs: 1
+  epochs: 15
   lr: 0.0005
   patience: 2
   target_features: 2
