@@ -31,30 +31,30 @@ Each task relies on labeled data that may not always be available, but can easil
 
 ## Results
 
+*d=32, n=4, h=2*
+
 **Route ID**
 | Model | Training Samples | Accuracy |
 | --- | --- | --- |
-| Transformer (from scratch) | 8 weeks () | |
-| nflMAE linear probing | 2 weeks () | |
-| nflMAE finetuned | 2 weeks () | |
+| Transformer (from scratch) | 8 weeks (14,589 plays) | 0.6203 |
+| nflMAE linear probing | 2 weeks (3,761 plays) | 0.4059 |
+| nflMAE finetuned | 2 weeks | **0.6307** |
 
 **Tackle Location**
 | Model | Training Samples | ADE (yards)|
 | --- | --- | --- |
-| Transformer (from scratch) | 8 weeks () | |
-| nflMAE linear probing | 2 weeks () | |
-| nflMAE finetuned | 2 weeks () | |
+| Transformer (from scratch) | 8 weeks (11,307 plays) | **4.5971** |
+| nflMAE linear probing | 2 weeks (2,888 plays) | 6.6964 |
+| nflMAE finetuned | 2 weeks | 4.6021 |
 
 $\text{ADE} = \frac{1}{N}\sum_{i=1}^{N} \sqrt{(x_{\text{pred}}^{(i)} - x_{\text{true}}^{(i)})^2 + (y_{\text{pred}}^{(i)} - y_{\text{true}}^{(i)})^2}$
 
 **Coverage ID**
 | Model | Training Samples | Accuracy |
 | --- | --- | --- |
-| Transformer (from scratch) | 8 weeks () | |
-| nflMAE linear probing | 2 weeks () | |
-| nflMAE finetuned | 2 weeks () | |
-
-*d=32, n=4, h=2*
+| Transformer (from scratch) | 8 weeks (14,589 plays) | 0.8353 |
+| nflMAE linear probing | 2 weeks (3,761 plays) | 0.7192 |
+| nflMAE finetuned | 2 weeks | **0.8563** |
 
 ---
 ## Repository

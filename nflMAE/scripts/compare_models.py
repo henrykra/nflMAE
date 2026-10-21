@@ -56,7 +56,7 @@ pretrain_config['model']['decoder']['hidden_dimension'] = 128
 pretrain_config['model']['decoder']['heads'] = 2
 pretrain_config['train']['folder_name'] = "small"
 
-# run_pretrain.main(pretrain_config)
+run_pretrain.main(pretrain_config)
 
 # large
 pretrain_config['model']['encoder']['model_dimension'] = 512
@@ -201,7 +201,7 @@ config_scratch['model']['hidden_dimension'] = 2048
 config_scratch['model']['heads'] = 16
 config_scratch['model']['depth'] = 4
 
-run_manzone.main(config_scratch)
+# run_manzone.main(config_scratch)
 
 
 # b. Finetune

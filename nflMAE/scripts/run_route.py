@@ -113,20 +113,11 @@ def main(config: dict):
     logger.info(f"Finetuning model for {train_config['epochs']} epochs")
     logger.info(f"{len(train_set)} training samples")
 
-
-    model.requires_grad_(False)
-    model.encoder.blocks[-1].requires_grad_(True)
-    trainer.train()
-    accuracy = trainer.test()
-    print(f"Test Accuracy: {accuracy}")
-
-
     if not scratch: 
         model.requires_grad_(False)
         trainer.train()
         ade = trainer.test()
         print(f"Test ADE: {ade:.4f}")
-        # trainer.writer.add_scalar("ADE/test", ade) # TODO: log hyperparams
 
         # trainer.clear()
         # model.encoder.blocks[-1].requires_grad_(True)

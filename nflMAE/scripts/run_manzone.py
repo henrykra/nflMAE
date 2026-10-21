@@ -117,7 +117,6 @@ def main(config: dict):
         trainer.train()
         ade = trainer.test()
         print(f"Test Accuracy: {ade:.4f}")
-        # trainer.writer.add_scalar("ADE/test", ade) # TODO: log hyperparams
 
         # trainer.clear()
         # model.encoder.blocks[-1].requires_grad_(True)
